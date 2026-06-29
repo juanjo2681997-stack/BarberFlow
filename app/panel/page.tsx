@@ -155,6 +155,9 @@ export default function BarberPanel() {
   const [serviceMessage, setServiceMessage] = useState("");
   const [blockMessage, setBlockMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
+  const [settingsMessageType, setSettingsMessageType] = useState<
+    "success" | "error"
+  >("success");
   const [newService, setNewService] = useState<NewServiceForm>({
     name: "",
     price: "",
@@ -246,6 +249,7 @@ export default function BarberPanel() {
     setServiceMessage("");
     setBlockMessage("");
     setSettingsMessage("");
+    setSettingsMessageType("success");
   }
 
   async function handleLogin() {
@@ -269,8 +273,10 @@ export default function BarberPanel() {
     setPassword("");
     clearPanelData();
   }
-  async function loadBusinessSettings() {
-    setSettingsMessage("");
+  async function loadBusinessSettings(clearMessage = true) {
+    if (clearMessage) {
+      setSettingsMessage("");
+    }
 
     const { data, error } = await supabase
       .from("business_settings")
@@ -305,9 +311,31 @@ export default function BarberPanel() {
       [field]: value
     }));
     setSettingsMessage("");
+    setSettingsMessageType("success");
   }
 
   async function saveBusinessSettings() {
+    setSettingsMessage("");
+
+    let settingsId = businessSettings.id;
+
+    if (!settingsId) {
+      const { data, error } = await supabase
+        .from("business_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data?.id) {
+        console.error("Error saving business settings:", error);
+        setSettingsMessageType("error");
+        setSettingsMessage("No se pudo guardar la configuración.");
+        return;
+      }
+
+      settingsId = data.id;
+    }
+
     const settingsToSave = {
       business_name: businessSettings.business_name.trim(),
       slogan: businessSettings.slogan.trim(),
@@ -315,23 +343,25 @@ export default function BarberPanel() {
       whatsapp_message: businessSettings.whatsapp_message.trim(),
       instagram_url: businessSettings.instagram_url.trim(),
       address: businessSettings.address.trim(),
-      main_button_text: businessSettings.main_button_text.trim()
+      main_button_text: businessSettings.main_button_text.trim(),
+      updated_at: new Date().toISOString()
     };
 
-    const { error } = businessSettings.id
-      ? await supabase
-          .from("business_settings")
-          .update(settingsToSave)
-          .eq("id", businessSettings.id)
-      : await supabase.from("business_settings").insert(settingsToSave);
+    const { error } = await supabase
+      .from("business_settings")
+      .update(settingsToSave)
+      .eq("id", settingsId);
 
     if (error) {
+      console.error("Error saving business settings:", error);
+      setSettingsMessageType("error");
       setSettingsMessage("No se pudo guardar la configuración.");
       return;
     }
 
-    setSettingsMessage("Configuración actualizada correctamente.");
-    await loadBusinessSettings();
+    setSettingsMessageType("success");
+    setSettingsMessage("Configuración guardada correctamente.");
+    await loadBusinessSettings(false);
   }
   async function loadAppointments() {
     setIsLoading(true);
@@ -944,7 +974,13 @@ export default function BarberPanel() {
           {openSections.settings && (
             <div className="mt-4 space-y-4">
               {settingsMessage && (
-                <p className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold">
+                <p
+                  className={
+                    settingsMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
                   {settingsMessage}
                 </p>
               )}
@@ -1051,7 +1087,7 @@ export default function BarberPanel() {
 
                 <button
                   className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
-                  onClick={saveBusinessSettings}
+                  onClick={() => saveBusinessSettings()}
                   type="button"
                 >
                   Guardar configuración
