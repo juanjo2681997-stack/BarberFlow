@@ -69,11 +69,14 @@ async function handleSendPushReminders(request: Request) {
     process.env.CRON_SECRET
   ].filter(Boolean);
   const authorization = request.headers.get("authorization");
+  const userAgent = request.headers.get("user-agent") || "";
   const isAuthorized = allowedSecrets.some(
     (secret) => authorization === `Bearer ${secret}`
   );
+  const isVercelCron = userAgent.toLowerCase().includes("vercel-cron");
+  const isVercelCronWithoutAuthorization = !authorization && isVercelCron;
 
-  if (!isAuthorized) {
+  if (!isAuthorized && !isVercelCronWithoutAuthorization) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
