@@ -232,6 +232,39 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+function waitForActiveServiceWorker(registration: ServiceWorkerRegistration) {
+  if (registration.active) {
+    return Promise.resolve(registration);
+  }
+
+  const worker = registration.installing || registration.waiting;
+
+  if (!worker) {
+    return Promise.reject(
+      new Error(
+        "No se pudo activar el servicio de notificaciones. Recarga la página e inténtalo de nuevo."
+      )
+    );
+  }
+
+  return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(
+        new Error(
+          "No se pudo activar el servicio de notificaciones. Recarga la página e inténtalo de nuevo."
+        )
+      );
+    }, 8000);
+
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "activated" && registration.active) {
+        window.clearTimeout(timeoutId);
+        resolve(registration);
+      }
+    });
+  });
+}
+
 function getAvailableHours(workingHour?: WorkingHour) {
   if (!workingHour || !workingHour.is_working) {
     return [];
@@ -1019,19 +1052,27 @@ export default function Home() {
       return;
     }
 
-    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-    if (!publicKey) {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
       setPushMessage({
-        text: "No está configurada la clave pública de notificaciones.",
+        text: "Este navegador no permite notificaciones.",
         type: "error"
       });
       return;
     }
 
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    if (!window.isSecureContext) {
       setPushMessage({
-        text: "Este navegador no permite notificaciones push.",
+        text: "Las notificaciones necesitan una conexión segura.",
+        type: "error"
+      });
+      return;
+    }
+
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+    if (!publicKey) {
+      setPushMessage({
+        text: "Falta la clave pública de notificaciones.",
         type: "error"
       });
       return;
@@ -1051,11 +1092,18 @@ export default function Home() {
         return;
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      const currentSubscription = await registration.pushManager.getSubscription();
+      await navigator.serviceWorker.register("/sw.js", {
+        scope: "/"
+      });
+
+      const readyRegistration = await waitForActiveServiceWorker(
+        await navigator.serviceWorker.ready
+      );
+      const currentSubscription =
+        await readyRegistration.pushManager.getSubscription();
       const subscription =
         currentSubscription ??
-        (await registration.pushManager.subscribe({
+        (await readyRegistration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(publicKey)
         }));
@@ -1083,7 +1131,15 @@ export default function Home() {
         type: "success"
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo activar el recordatorio.";
+      console.error("Error activating push reminder:", error);
+
+      const message =
+        error instanceof Error &&
+        error.message.startsWith("No se pudo activar el servicio")
+          ? error.message
+          : error instanceof Error
+            ? `No se pudo activar el recordatorio: ${error.message}`
+            : "No se pudo activar el recordatorio.";
 
       setPushMessage({
         text: message,

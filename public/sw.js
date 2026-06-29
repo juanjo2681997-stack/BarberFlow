@@ -1,4 +1,12 @@
-﻿self.addEventListener("push", (event) => {
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("push", (event) => {
   let data = {};
 
   if (event.data) {
@@ -42,4 +50,3 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
-
