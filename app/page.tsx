@@ -100,7 +100,9 @@ type CustomerAppointment = {
 type CustomerAuthForm = {
   email: string;
   password: string;
-  fullName: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
   phone: string;
 };
 
@@ -158,7 +160,9 @@ const initialForm: BookingForm = {
 const initialCustomerAuthForm: CustomerAuthForm = {
   email: "",
   password: "",
-  fullName: "",
+  confirmPassword: "",
+  firstName: "",
+  lastName: "",
   phone: ""
 };
 
@@ -481,6 +485,7 @@ export default function Home() {
   const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
   const [customerAppointmentsMessage, setCustomerAppointmentsMessage] =
     useState<FormMessage | null>(null);
+  const [isCheckingCustomerSession, setIsCheckingCustomerSession] = useState(true);
   const [isCustomerAuthLoading, setIsCustomerAuthLoading] = useState(false);
   const [isLoadingCustomerProfile, setIsLoadingCustomerProfile] = useState(false);
   const [isSavingCustomerProfile, setIsSavingCustomerProfile] = useState(false);
@@ -566,12 +571,14 @@ export default function Home() {
 
       if (user) {
         setCustomerUser(user);
+        setIsCheckingCustomerSession(false);
         loadCustomerProfile(user.id);
         loadCustomerAppointments(user.id);
         return;
       }
 
       clearCustomerData();
+      setIsCheckingCustomerSession(false);
     });
 
     return () => {
@@ -774,6 +781,7 @@ export default function Home() {
 
     if (!user) {
       clearCustomerData();
+      setIsCheckingCustomerSession(false);
       return;
     }
 
@@ -782,6 +790,7 @@ export default function Home() {
       loadCustomerProfile(user.id),
       loadCustomerAppointments(user.id)
     ]);
+    setIsCheckingCustomerSession(false);
   }
 
   function updateCustomerAuthField(field: keyof CustomerAuthForm, value: string) {
@@ -812,11 +821,21 @@ export default function Home() {
     if (
       customerAuthForm.email.trim() === "" ||
       customerAuthForm.password.trim() === "" ||
-      customerAuthForm.fullName.trim() === "" ||
+      customerAuthForm.confirmPassword.trim() === "" ||
+      customerAuthForm.firstName.trim() === "" ||
+      customerAuthForm.lastName.trim() === "" ||
       customerAuthForm.phone.trim() === ""
     ) {
       setCustomerMessage({
-        text: "Rellena email, contraseña, nombre y teléfono para crear tu cuenta.",
+        text: "Rellena nombre, apellidos, teléfono, email y contraseña para crear tu cuenta.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (customerAuthForm.password !== customerAuthForm.confirmPassword) {
+      setCustomerMessage({
+        text: "Las contraseñas no coinciden.",
         type: "error"
       });
       return;
@@ -825,12 +844,14 @@ export default function Home() {
     setIsCustomerAuthLoading(true);
     setCustomerMessage(null);
 
+    const fullName = `${customerAuthForm.firstName.trim()} ${customerAuthForm.lastName.trim()}`;
+
     const { data, error } = await supabase.auth.signUp({
       email: customerAuthForm.email.trim(),
       password: customerAuthForm.password,
       options: {
         data: {
-          full_name: customerAuthForm.fullName.trim(),
+          full_name: fullName,
           phone: customerAuthForm.phone.trim()
         }
       }
@@ -849,14 +870,14 @@ export default function Home() {
     if (data.user) {
       const { error: profileError } = await saveCustomerProfileForUser(
         data.user.id,
-        customerAuthForm.fullName,
+        fullName,
         customerAuthForm.phone
       );
 
       if (data.session && !profileError) {
         setCustomerProfile({
           user_id: data.user.id,
-          full_name: customerAuthForm.fullName.trim(),
+          full_name: fullName,
           phone: customerAuthForm.phone.trim()
         });
       }
@@ -1010,6 +1031,7 @@ export default function Home() {
         "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status"
       )
       .eq("customer_user_id", userId)
+      .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
 
@@ -1537,6 +1559,221 @@ export default function Home() {
     }
   }
 
+  if (isCheckingCustomerSession) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Cargando tu sesión...
+          </h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isCustomerLoggedIn) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Accede para reservar
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-white/65">
+            Crea tu cuenta para reservar cita y consultar tus próximas reservas.
+          </p>
+          <p className="mt-2 text-lg font-bold text-white">
+            {businessSettings.business_name}
+          </p>
+
+          {customerMessage && (
+            <p
+              className={
+                customerMessage.type === "success"
+                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+              }
+            >
+              {customerMessage.text}
+            </p>
+          )}
+
+          <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h2 className="text-lg font-bold text-white">Iniciar sesión</h2>
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Email
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerLoginField("email", event.target.value)
+                  }
+                  placeholder="tu@email.com"
+                  type="email"
+                  value={customerLoginForm.email}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Contraseña
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerLoginField("password", event.target.value)
+                  }
+                  placeholder="Contraseña"
+                  type="password"
+                  value={customerLoginForm.password}
+                />
+              </label>
+
+              <button
+                className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCustomerAuthLoading}
+                onClick={loginCustomer}
+                type="button"
+              >
+                {isCustomerAuthLoading ? "Entrando..." : "Iniciar sesión"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h2 className="text-lg font-bold text-white">Crear cuenta</h2>
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Nombre
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("firstName", event.target.value)
+                    }
+                    placeholder="Nombre"
+                    type="text"
+                    value={customerAuthForm.firstName}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Apellidos
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("lastName", event.target.value)
+                    }
+                    placeholder="Apellidos"
+                    type="text"
+                    value={customerAuthForm.lastName}
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Teléfono
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerAuthField("phone", event.target.value)
+                  }
+                  placeholder="Tu teléfono"
+                  type="tel"
+                  value={customerAuthForm.phone}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Email
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerAuthField("email", event.target.value)
+                  }
+                  placeholder="tu@email.com"
+                  type="email"
+                  value={customerAuthForm.email}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Contraseña
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerAuthField("password", event.target.value)
+                  }
+                  placeholder="Contraseña"
+                  type="password"
+                  value={customerAuthForm.password}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Repetir contraseña
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateCustomerAuthField("confirmPassword", event.target.value)
+                  }
+                  placeholder="Repite la contraseña"
+                  type="password"
+                  value={customerAuthForm.confirmPassword}
+                />
+              </label>
+
+              <button
+                className="w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCustomerAuthLoading}
+                onClick={registerCustomer}
+                type="button"
+              >
+                Crear cuenta
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3">
+            <button
+              className="cursor-not-allowed rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white/35"
+              disabled
+              type="button"
+            >
+              Continuar con Google (próximamente)
+            </button>
+            <button
+              className="cursor-not-allowed rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white/35"
+              disabled
+              type="button"
+            >
+              Continuar con Apple (próximamente)
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-between rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
@@ -1628,9 +1865,9 @@ export default function Home() {
       </section>
 
       <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
-        <h2 className="text-2xl font-bold text-white">Accede para reservar</h2>
+        <h2 className="text-2xl font-bold text-white">Mi perfil</h2>
         <p className="mt-2 text-sm leading-6 text-white/65">
-          Crea tu cuenta o inicia sesión para confirmar citas y consultar tus reservas.
+          Gestiona tus datos de cliente y consulta tus próximas citas.
         </p>
 
         {customerMessage && (
@@ -1726,16 +1963,16 @@ export default function Home() {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-semibold text-white/70">
-                    Nombre completo
+                    Nombre
                   </span>
                   <input
                     className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
                     onChange={(event) =>
-                      updateCustomerAuthField("fullName", event.target.value)
+                      updateCustomerAuthField("firstName", event.target.value)
                     }
                     placeholder="Tu nombre"
                     type="text"
-                    value={customerAuthForm.fullName}
+                    value={customerAuthForm.firstName}
                   />
                 </label>
 
@@ -1785,7 +2022,7 @@ export default function Home() {
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <h3 className="text-lg font-bold text-white">Perfil</h3>
+              <h3 className="text-lg font-bold text-white">Datos de contacto</h3>
               {isLoadingCustomerProfile ? (
                 <p className="mt-3 text-sm text-white/60">Cargando perfil...</p>
               ) : (
