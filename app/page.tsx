@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 
 type BookingForm = {
@@ -80,6 +81,34 @@ type PushReminderAppointment = {
   customerPhone: string;
 };
 
+type CustomerProfile = {
+  user_id: string;
+  full_name: string;
+  phone: string;
+};
+
+type CustomerAppointment = {
+  id: string;
+  service: string;
+  appointment_date: string;
+  appointment_time: string;
+  customer_name: string;
+  customer_phone: string;
+  reminder_status: string | null;
+};
+
+type CustomerAuthForm = {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+};
+
+type CustomerLoginForm = {
+  email: string;
+  password: string;
+};
+
 
 const mainBarber = "Pablo";
 
@@ -124,6 +153,18 @@ const initialForm: BookingForm = {
   hour: "",
   customerName: "",
   customerPhone: ""
+};
+
+const initialCustomerAuthForm: CustomerAuthForm = {
+  email: "",
+  password: "",
+  fullName: "",
+  phone: ""
+};
+
+const initialCustomerLoginForm: CustomerLoginForm = {
+  email: "",
+  password: ""
 };
 
 function hasEmptyFields(form: BookingForm) {
@@ -422,6 +463,29 @@ export default function Home() {
   const [pushMessage, setPushMessage] = useState<FormMessage | null>(null);
   const [isActivatingPush, setIsActivatingPush] = useState(false);
   const [currentTimeInfo, setCurrentTimeInfo] = useState(getCurrentTimeInfo);
+  const [customerUser, setCustomerUser] = useState<User | null>(null);
+  const [customerAuthForm, setCustomerAuthForm] = useState<CustomerAuthForm>(
+    initialCustomerAuthForm
+  );
+  const [customerLoginForm, setCustomerLoginForm] = useState<CustomerLoginForm>(
+    initialCustomerLoginForm
+  );
+  const [customerProfile, setCustomerProfile] = useState<CustomerProfile>({
+    user_id: "",
+    full_name: "",
+    phone: ""
+  });
+  const [customerAppointments, setCustomerAppointments] = useState<
+    CustomerAppointment[]
+  >([]);
+  const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
+  const [customerAppointmentsMessage, setCustomerAppointmentsMessage] =
+    useState<FormMessage | null>(null);
+  const [isCustomerAuthLoading, setIsCustomerAuthLoading] = useState(false);
+  const [isLoadingCustomerProfile, setIsLoadingCustomerProfile] = useState(false);
+  const [isSavingCustomerProfile, setIsSavingCustomerProfile] = useState(false);
+  const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
+    useState(false);
 
   const secondaryLinks = [
     {
@@ -481,12 +545,38 @@ export default function Home() {
     formData.day !== "" &&
     selectedDay?.workingHour?.is_working === true &&
     availableHours.length === 0;
+  const isCustomerLoggedIn = customerUser !== null;
+  const isCustomerProfileComplete =
+    customerProfile.full_name.trim() !== "" && customerProfile.phone.trim() !== "";
 
   useEffect(() => {
     loadBusinessSettings();
     loadServices();
     loadWorkingHours();
     loadBlockedTimes();
+  }, []);
+
+  useEffect(() => {
+    checkCustomerSession();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+
+      if (user) {
+        setCustomerUser(user);
+        loadCustomerProfile(user.id);
+        loadCustomerAppointments(user.id);
+        return;
+      }
+
+      clearCustomerData();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -665,6 +755,278 @@ export default function Home() {
     setWorkingHours(nextWorkingHours);
   }
 
+  function clearCustomerData() {
+    setCustomerUser(null);
+    setCustomerProfile({
+      user_id: "",
+      full_name: "",
+      phone: ""
+    });
+    setCustomerAppointments([]);
+    setCustomerAppointmentsMessage(null);
+    setIsLoadingCustomerProfile(false);
+    setIsLoadingCustomerAppointments(false);
+  }
+
+  async function checkCustomerSession() {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user ?? null;
+
+    if (!user) {
+      clearCustomerData();
+      return;
+    }
+
+    setCustomerUser(user);
+    await Promise.all([
+      loadCustomerProfile(user.id),
+      loadCustomerAppointments(user.id)
+    ]);
+  }
+
+  function updateCustomerAuthField(field: keyof CustomerAuthForm, value: string) {
+    setCustomerAuthForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setCustomerMessage(null);
+  }
+
+  function updateCustomerLoginField(field: keyof CustomerLoginForm, value: string) {
+    setCustomerLoginForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setCustomerMessage(null);
+  }
+
+  function updateCustomerProfile(field: keyof CustomerProfile, value: string) {
+    setCustomerProfile((currentProfile) => ({
+      ...currentProfile,
+      [field]: value
+    }));
+    setCustomerMessage(null);
+  }
+
+  async function registerCustomer() {
+    if (
+      customerAuthForm.email.trim() === "" ||
+      customerAuthForm.password.trim() === "" ||
+      customerAuthForm.fullName.trim() === "" ||
+      customerAuthForm.phone.trim() === ""
+    ) {
+      setCustomerMessage({
+        text: "Rellena email, contraseña, nombre y teléfono para crear tu cuenta.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsCustomerAuthLoading(true);
+    setCustomerMessage(null);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: customerAuthForm.email.trim(),
+      password: customerAuthForm.password,
+      options: {
+        data: {
+          full_name: customerAuthForm.fullName.trim(),
+          phone: customerAuthForm.phone.trim()
+        }
+      }
+    });
+
+    setIsCustomerAuthLoading(false);
+
+    if (error) {
+      setCustomerMessage({
+        text: "No se pudo crear la cuenta.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (data.user) {
+      const { error: profileError } = await saveCustomerProfileForUser(
+        data.user.id,
+        customerAuthForm.fullName,
+        customerAuthForm.phone
+      );
+
+      if (data.session && !profileError) {
+        setCustomerProfile({
+          user_id: data.user.id,
+          full_name: customerAuthForm.fullName.trim(),
+          phone: customerAuthForm.phone.trim()
+        });
+      }
+    }
+
+    setCustomerAuthForm(initialCustomerAuthForm);
+    setCustomerMessage({
+      text: data.session
+        ? "Cuenta creada correctamente."
+        : "Cuenta creada. Revisa tu correo para confirmarla antes de iniciar sesión.",
+      type: "success"
+    });
+  }
+
+  async function loginCustomer() {
+    if (
+      customerLoginForm.email.trim() === "" ||
+      customerLoginForm.password.trim() === ""
+    ) {
+      setCustomerMessage({
+        text: "Rellena email y contraseña para iniciar sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsCustomerAuthLoading(true);
+    setCustomerMessage(null);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: customerLoginForm.email.trim(),
+      password: customerLoginForm.password
+    });
+
+    setIsCustomerAuthLoading(false);
+
+    if (error) {
+      setCustomerMessage({
+        text: "No se pudo iniciar sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    setCustomerLoginForm(initialCustomerLoginForm);
+    setCustomerMessage({
+      text: "Sesión iniciada.",
+      type: "success"
+    });
+  }
+
+  async function logoutCustomer() {
+    setIsCustomerAuthLoading(true);
+
+    await supabase.auth.signOut();
+
+    setIsCustomerAuthLoading(false);
+    clearCustomerData();
+    setCustomerMessage({
+      text: "Sesión cerrada.",
+      type: "success"
+    });
+  }
+
+  async function loadCustomerProfile(userId: string) {
+    setIsLoadingCustomerProfile(true);
+
+    const { data, error } = await supabase
+      .from("customer_profiles")
+      .select("user_id, full_name, phone")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    setIsLoadingCustomerProfile(false);
+
+    if (error) {
+      setCustomerProfile({
+        user_id: userId,
+        full_name: "",
+        phone: ""
+      });
+      return;
+    }
+
+    setCustomerProfile({
+      user_id: userId,
+      full_name: data?.full_name ?? "",
+      phone: data?.phone ?? ""
+    });
+  }
+
+  async function saveCustomerProfileForUser(
+    userId: string,
+    fullName: string,
+    phone: string
+  ) {
+    return supabase.from("customer_profiles").upsert(
+      {
+        user_id: userId,
+        full_name: fullName.trim(),
+        phone: phone.trim()
+      },
+      { onConflict: "user_id" }
+    );
+  }
+
+  async function saveCustomerProfile() {
+    if (!customerUser) {
+      return;
+    }
+
+    setIsSavingCustomerProfile(true);
+    setCustomerMessage(null);
+
+    const profileToSave = {
+      user_id: customerUser.id,
+      full_name: customerProfile.full_name.trim(),
+      phone: customerProfile.phone.trim()
+    };
+
+    const { error } = await saveCustomerProfileForUser(
+      profileToSave.user_id,
+      profileToSave.full_name,
+      profileToSave.phone
+    );
+
+    setIsSavingCustomerProfile(false);
+
+    if (error) {
+      setCustomerMessage({
+        text: "No se pudo guardar el perfil.",
+        type: "error"
+      });
+      return;
+    }
+
+    setCustomerProfile(profileToSave);
+    setCustomerMessage({
+      text: "Perfil guardado.",
+      type: "success"
+    });
+  }
+
+  async function loadCustomerAppointments(userId: string) {
+    setIsLoadingCustomerAppointments(true);
+    setCustomerAppointmentsMessage(null);
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status"
+      )
+      .eq("customer_user_id", userId)
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+
+    setIsLoadingCustomerAppointments(false);
+
+    if (error) {
+      setCustomerAppointments([]);
+      setCustomerAppointmentsMessage({
+        text: "No se pudieron cargar tus citas.",
+        type: "error"
+      });
+      return;
+    }
+
+    setCustomerAppointments((data ?? []) as CustomerAppointment[]);
+  }
+
   function updateField(field: keyof BookingForm, value: string) {
     if (
       field === "hour" &&
@@ -806,7 +1168,20 @@ export default function Home() {
   async function confirmBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (hasEmptyFields(formData)) {
+    if (!customerUser) {
+      setFormMessage({
+        text: "Debes iniciar sesión para reservar.",
+        type: "error"
+      });
+      return;
+    }
+
+    const hasMissingBookingFields =
+      formData.service.trim() === "" ||
+      formData.day.trim() === "" ||
+      formData.hour.trim() === "";
+
+    if (hasMissingBookingFields) {
       setFormMessage({
         text: "Rellena todos los campos antes de reservar.",
         type: "error"
@@ -839,6 +1214,14 @@ export default function Home() {
     if (!selectedService) {
       setFormMessage({
         text: "Rellena todos los campos antes de reservar.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (!isCustomerProfileComplete) {
+      setFormMessage({
+        text: "Completa tu nombre y teléfono antes de reservar.",
         type: "error"
       });
       return;
@@ -967,7 +1350,8 @@ export default function Home() {
       return;
     }
 
-    const customerPhone = formData.customerPhone.trim();
+    const customerName = customerProfile.full_name.trim();
+    const customerPhone = customerProfile.phone.trim();
     const appointmentId = crypto.randomUUID();
 
     const { error } = await supabase.from("appointments").insert({
@@ -975,8 +1359,9 @@ export default function Home() {
       service: formData.service,
       appointment_date: formData.day,
       appointment_time: formData.hour,
-      customer_name: formData.customerName.trim(),
+      customer_name: customerName,
       customer_phone: customerPhone,
+      customer_user_id: customerUser.id,
       barber_name: mainBarber,
       duration_minutes: selectedService.duration_minutes
     });
@@ -1041,6 +1426,8 @@ export default function Home() {
       customerName: "",
       customerPhone: ""
     });
+
+    await loadCustomerAppointments(customerUser.id);
   }
 
   async function activatePushReminder() {
@@ -1240,6 +1627,262 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+        <h2 className="text-2xl font-bold text-white">Accede para reservar</h2>
+        <p className="mt-2 text-sm leading-6 text-white/65">
+          Crea tu cuenta o inicia sesión para confirmar citas y consultar tus reservas.
+        </p>
+
+        {customerMessage && (
+          <p
+            className={
+              customerMessage.type === "success"
+                ? "mt-4 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                : "mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+            }
+          >
+            {customerMessage.text}
+          </p>
+        )}
+
+        {!isCustomerLoggedIn ? (
+          <div className="mt-5 space-y-5">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <h3 className="text-lg font-bold text-white">Iniciar sesión</h3>
+              <div className="mt-4 space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Email
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerLoginField("email", event.target.value)
+                    }
+                    placeholder="tu@email.com"
+                    type="email"
+                    value={customerLoginForm.email}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Contraseña
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerLoginField("password", event.target.value)
+                    }
+                    placeholder="Contraseña"
+                    type="password"
+                    value={customerLoginForm.password}
+                  />
+                </label>
+
+              <button
+                className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCustomerAuthLoading}
+                onClick={loginCustomer}
+                type="button"
+              >
+                {isCustomerAuthLoading ? "Entrando..." : "Iniciar sesión"}
+              </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <h3 className="text-lg font-bold text-white">Crear cuenta</h3>
+              <div className="mt-4 space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Email
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("email", event.target.value)
+                    }
+                    placeholder="tu@email.com"
+                    type="email"
+                    value={customerAuthForm.email}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Contraseña
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("password", event.target.value)
+                    }
+                    placeholder="Contraseña"
+                    type="password"
+                    value={customerAuthForm.password}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Nombre completo
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("fullName", event.target.value)
+                    }
+                    placeholder="Tu nombre"
+                    type="text"
+                    value={customerAuthForm.fullName}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Teléfono
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerAuthField("phone", event.target.value)
+                    }
+                    placeholder="Tu teléfono"
+                    type="tel"
+                    value={customerAuthForm.phone}
+                  />
+                </label>
+
+              <button
+                className="w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCustomerAuthLoading}
+                onClick={registerCustomer}
+                type="button"
+              >
+                Crear cuenta
+              </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-5">
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
+                Sesión activa
+              </p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {customerUser.email}
+              </p>
+              <button
+                className="mt-4 w-full rounded-2xl border border-red-400/40 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCustomerAuthLoading}
+                onClick={logoutCustomer}
+                type="button"
+              >
+                {isCustomerAuthLoading ? "Cerrando..." : "Cerrar sesión"}
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <h3 className="text-lg font-bold text-white">Perfil</h3>
+              {isLoadingCustomerProfile ? (
+                <p className="mt-3 text-sm text-white/60">Cargando perfil...</p>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-white/70">
+                      Nombre completo
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateCustomerProfile("full_name", event.target.value)
+                      }
+                      placeholder="Tu nombre"
+                      type="text"
+                      value={customerProfile.full_name}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-white/70">
+                      Teléfono
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateCustomerProfile("phone", event.target.value)
+                      }
+                      placeholder="Tu teléfono"
+                      type="tel"
+                      value={customerProfile.phone}
+                    />
+                  </label>
+
+                  <button
+                    className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSavingCustomerProfile}
+                    onClick={saveCustomerProfile}
+                    type="button"
+                  >
+                    {isSavingCustomerProfile ? "Guardando..." : "Guardar perfil"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <h3 className="text-lg font-bold text-white">Mis citas</h3>
+
+              {customerAppointmentsMessage && (
+                <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
+                  {customerAppointmentsMessage.text}
+                </p>
+              )}
+
+              {isLoadingCustomerAppointments ? (
+                <p className="mt-3 text-sm text-white/60">Cargando tus citas...</p>
+              ) : customerAppointments.length === 0 ? (
+                <p className="mt-3 text-sm text-white/60">
+                  Todavía no tienes citas guardadas en tu cuenta.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {customerAppointments.map((appointment) => (
+                    <article
+                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                      key={appointment.id}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-white">
+                            {appointment.service}
+                          </p>
+                          <p className="mt-1 text-sm text-white/60">
+                            {appointment.appointment_date} ·{" "}
+                            {formatAppointmentTime(appointment.appointment_time)}
+                          </p>
+                        </div>
+                        {appointment.reminder_status && (
+                          <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
+                            {appointment.reminder_status}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-1 text-sm text-white/65">
+                        <p>{appointment.customer_name}</p>
+                        <p>{appointment.customer_phone}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
       <section
         className="mx-auto mt-6 w-full max-w-md scroll-mt-6 rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40"
         id="reserva"
@@ -1401,33 +2044,27 @@ export default function Home() {
             </p>
           )}
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-white/70">
-              Nombre del cliente
-            </span>
-            <input
-              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
-              onChange={(event) => updateField("customerName", event.target.value)}
-              placeholder="Tu nombre"
-              required
-              type="text"
-              value={formData.customerName}
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-white/70">
-              Teléfono del cliente
-            </span>
-            <input
-              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
-              onChange={(event) => updateField("customerPhone", event.target.value)}
-              placeholder="Tu teléfono"
-              required
-              type="tel"
-              value={formData.customerPhone}
-            />
-          </label>
+          {!isCustomerLoggedIn ? (
+            <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
+              Para reservar una cita necesitas crear una cuenta o iniciar sesión.
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/70">
+              {isCustomerProfileComplete ? (
+                <p>
+                  Reservarás como{" "}
+                  <span className="font-semibold text-white">
+                    {customerProfile.full_name}
+                  </span>{" "}
+                  · {customerProfile.phone}
+                </p>
+              ) : (
+                <p className="font-semibold text-red-100">
+                  Completa tu nombre y teléfono antes de reservar.
+                </p>
+              )}
+            </div>
+          )}
 
           <button
             className="w-full rounded-2xl bg-barber-gold px-6 py-4 text-base font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
