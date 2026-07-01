@@ -2128,7 +2128,7 @@ export default function Home() {
                 className="text-xs font-semibold text-white/40 transition hover:text-barber-gold"
                 href="/panel"
               >
-                Acceso barbero
+                Área barbero
               </Link>
             )}
           </div>
