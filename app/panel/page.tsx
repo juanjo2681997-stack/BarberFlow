@@ -364,6 +364,78 @@ export default function BarberPanel() {
     setSettingsMessageType("success");
   }
 
+  function normalizeBusinessSettings(data: BusinessSettings): BusinessSettings {
+    return {
+      id: data.id,
+      business_name: data.business_name || defaultBusinessSettings.business_name,
+      slogan: data.slogan || defaultBusinessSettings.slogan,
+      whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
+      whatsapp_message:
+        data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
+      instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
+      address: data.address || defaultBusinessSettings.address,
+      main_button_text:
+        data.main_button_text || defaultBusinessSettings.main_button_text,
+      booking_limit_enabled:
+        data.booking_limit_enabled ?? defaultBusinessSettings.booking_limit_enabled,
+      booking_limit_value: Number(
+        data.booking_limit_value ?? defaultBusinessSettings.booking_limit_value
+      ),
+      booking_limit_mode: normalizeBookingLimitMode(data.booking_limit_mode),
+      weekly_release_enabled:
+        data.weekly_release_enabled ??
+        defaultBusinessSettings.weekly_release_enabled,
+      weekly_release_day: Number(
+        data.weekly_release_day ?? defaultBusinessSettings.weekly_release_day
+      ),
+      weekly_release_window_days: Number(
+        data.weekly_release_window_days ??
+          defaultBusinessSettings.weekly_release_window_days
+      )
+    };
+  }
+
+  async function updateBusinessSettingsWithApi(
+    settingsToSave: Omit<BusinessSettings, "id"> & { id: string },
+    errorMessage: string
+  ) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setSettingsMessageType("error");
+      setSettingsMessage(errorMessage);
+      return null;
+    }
+
+    const response = await fetch("/api/admin/business-settings", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(settingsToSave)
+    });
+
+    if (!response.ok) {
+      setSettingsMessageType("error");
+      setSettingsMessage(errorMessage);
+      return null;
+    }
+
+    const result = await response.json();
+    const nextBusinessSettings = normalizeBusinessSettings(
+      result.business_settings as BusinessSettings
+    );
+
+    setBusinessSettings(nextBusinessSettings);
+    setBusinessForm(nextBusinessSettings);
+    setSettingsMessageType("success");
+    setSettingsMessage("Configuración guardada correctamente.");
+
+    return nextBusinessSettings;
+  }
+
   async function saveBusinessSettings() {
     setSettingsMessage("");
 
@@ -375,6 +447,7 @@ export default function BarberPanel() {
     }
 
     const settingsToSave = {
+      id: businessSettings.id,
       business_name: businessForm.business_name.trim(),
       slogan: businessForm.slogan.trim(),
       whatsapp_phone: businessForm.whatsapp_phone.trim(),
@@ -388,33 +461,67 @@ export default function BarberPanel() {
       weekly_release_enabled: businessForm.weekly_release_enabled,
       weekly_release_day: Number(businessForm.weekly_release_day),
       weekly_release_window_days:
-        Number(businessForm.weekly_release_window_days),
-      updated_at: new Date().toISOString()
+        Number(businessForm.weekly_release_window_days)
     };
 
-    const { error } = await supabase
-      .from("business_settings")
-      .update(settingsToSave)
-      .eq("id", businessSettings.id);
+    const nextBusinessSettings = await updateBusinessSettingsWithApi(
+      settingsToSave,
+      "No se pudo guardar la configuración."
+    );
 
-    if (error) {
-      console.error("Error saving business settings:", error);
+    if (!nextBusinessSettings) {
       setSettingsMessageType("error");
       setSettingsMessage("No se pudo guardar la configuración.");
       return;
     }
+  }
 
-    setSettingsMessageType("success");
-    setSettingsMessage("Configuración guardada correctamente.");
-    setBusinessSettings((currentSettings) => ({
-      ...currentSettings,
-      ...settingsToSave
-    }));
-    setBusinessForm((currentForm) => ({
-      ...currentForm,
-      ...settingsToSave
-    }));
-    await loadBusinessSettings(false);
+  async function saveBookingSettings() {
+    setSettingsMessage("");
+
+    if (!businessSettings.id) {
+      console.error("Error saving booking settings:", "Missing business settings id");
+      setSettingsMessageType("error");
+      setSettingsMessage("No se pudo guardar la configuración de reservas.");
+      return;
+    }
+
+    const bookingSettingsToSave = {
+      id: businessSettings.id,
+      business_name: businessForm.business_name,
+      slogan: businessForm.slogan,
+      whatsapp_phone: businessForm.whatsapp_phone,
+      whatsapp_message: businessForm.whatsapp_message,
+      instagram_url: businessForm.instagram_url,
+      address: businessForm.address,
+      main_button_text: businessForm.main_button_text,
+      booking_limit_enabled: businessForm.booking_limit_enabled,
+      booking_limit_value: Number(businessForm.booking_limit_value),
+      booking_limit_mode: businessForm.booking_limit_mode,
+      weekly_release_enabled: businessForm.weekly_release_enabled,
+      weekly_release_day: Number(businessForm.weekly_release_day),
+      weekly_release_window_days: Number(businessForm.weekly_release_window_days)
+    };
+
+    console.log("Saving booking settings:", {
+      booking_limit_enabled: businessForm.booking_limit_enabled,
+      booking_limit_value: businessForm.booking_limit_value,
+      booking_limit_mode: businessForm.booking_limit_mode,
+      weekly_release_enabled: businessForm.weekly_release_enabled,
+      weekly_release_day: businessForm.weekly_release_day,
+      weekly_release_window_days: businessForm.weekly_release_window_days
+    });
+
+    const nextBusinessSettings = await updateBusinessSettingsWithApi(
+      bookingSettingsToSave,
+      "No se pudo guardar la configuración de reservas."
+    );
+
+    if (!nextBusinessSettings) {
+      setSettingsMessageType("error");
+      setSettingsMessage("No se pudo guardar la configuración de reservas.");
+      return;
+    }
   }
   async function loadAppointments() {
     setIsLoading(true);
@@ -1304,7 +1411,7 @@ export default function BarberPanel() {
 
                 <button
                   className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
-                  onClick={() => saveBusinessSettings()}
+                  onClick={() => saveBookingSettings()}
                   type="button"
                 >
                   Guardar configuración
