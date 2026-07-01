@@ -76,6 +76,14 @@ type DayOption = {
   workingHour?: WorkingHour;
 };
 
+type CalendarDay = DayOption & {
+  isCurrentMonth: boolean;
+  isPast: boolean;
+  isBlocked: boolean;
+  isClosed: boolean;
+  isSelectable: boolean;
+};
+
 type PushReminderAppointment = {
   id: string;
   customerPhone: string;
@@ -138,6 +146,23 @@ const months = [
   "Nov",
   "Dic"
 ];
+
+const fullMonths = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre"
+];
+
+const calendarWeekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 const defaultBusinessSettings: BusinessSettings = {
   business_name: "Pablo's Barbershop",
@@ -345,6 +370,53 @@ function getWorkingHoursForDate(date: Date, workingHours: WorkingHour[]) {
   );
 }
 
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getCalendarDays(
+  calendarMonth: Date,
+  workingHours: WorkingHour[],
+  blockedTimes: BlockedTime[]
+) {
+  const today = startOfLocalDay(new Date());
+  const firstDayOfMonth = new Date(
+    calendarMonth.getFullYear(),
+    calendarMonth.getMonth(),
+    1
+  );
+  const firstCalendarDay = new Date(firstDayOfMonth);
+  const mondayOffset = (firstDayOfMonth.getDay() + 6) % 7;
+  firstCalendarDay.setDate(firstDayOfMonth.getDate() - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index): CalendarDay => {
+    const date = new Date(firstCalendarDay);
+    date.setDate(firstCalendarDay.getDate() + index);
+
+    const value = formatDateForSupabase(date);
+    const workingHour = getWorkingHoursForDate(date, workingHours);
+    const isPast = startOfLocalDay(date) < today;
+    const isBlocked = blockedTimes.some(
+      (blockedTime) =>
+        blockedTime.block_date === value && blockedTime.is_full_day
+    );
+    const isClosed = !workingHour?.is_working;
+
+    return {
+      value,
+      label: String(date.getDate()),
+      dateText: `${date.getDate()} ${months[date.getMonth()]}`,
+      dayOfWeek: date.getDay(),
+      workingHour,
+      isCurrentMonth: date.getMonth() === calendarMonth.getMonth(),
+      isPast,
+      isBlocked,
+      isClosed,
+      isSelectable: !isPast && !isBlocked && !isClosed
+    };
+  });
+}
+
 function rangesOverlap(
   startTime: string,
   durationMinutes: number,
@@ -467,6 +539,11 @@ export default function Home() {
   const [pushMessage, setPushMessage] = useState<FormMessage | null>(null);
   const [isActivatingPush, setIsActivatingPush] = useState(false);
   const [currentTimeInfo, setCurrentTimeInfo] = useState(getCurrentTimeInfo);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [customerUser, setCustomerUser] = useState<User | null>(null);
   const [customerAuthForm, setCustomerAuthForm] = useState<CustomerAuthForm>(
     initialCustomerAuthForm
@@ -511,8 +588,18 @@ export default function Home() {
     }
   ];
 
-  const dayOptions = getNextThirtyThreeDays(workingHours);
-  const selectedDay = dayOptions.find((day) => day.value === formData.day);
+  const calendarDays = getCalendarDays(calendarMonth, workingHours, blockedTimes);
+  const selectedDate = formData.day ? new Date(`${formData.day}T00:00:00`) : null;
+  const selectedDay = selectedDate
+    ? {
+        value: formData.day,
+        label: weekDays[selectedDate.getDay()],
+        dateText: `${selectedDate.getDate()} ${months[selectedDate.getMonth()]}`,
+        dayOfWeek: selectedDate.getDay(),
+        workingHour: getWorkingHoursForDate(selectedDate, workingHours)
+      }
+    : undefined;
+  const calendarMonthTitle = `${fullMonths[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`;
   const selectedService = services.find(
     (service) => formatServiceText(service) === formData.service
   );
@@ -700,14 +787,11 @@ export default function Home() {
 
   async function loadBlockedTimes() {
     const today = new Date();
-    const lastDay = new Date(today);
-    lastDay.setDate(today.getDate() + 32);
 
     const { data, error } = await supabase
       .from("blocked_times")
       .select("id, block_date, is_full_day, start_time, end_time, reason")
       .gte("block_date", formatDateForSupabase(today))
-      .lte("block_date", formatDateForSupabase(lastDay))
       .order("block_date", { ascending: true })
       .order("start_time", { ascending: true });
 
@@ -1071,10 +1155,45 @@ export default function Home() {
     setFormMessage(null);
   }
 
+  function changeCalendarMonth(monthsToAdd: number) {
+    setCalendarMonth((currentMonth) => {
+      const nextMonth = new Date(currentMonth);
+      nextMonth.setMonth(currentMonth.getMonth() + monthsToAdd);
+
+      return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1);
+    });
+  }
+
+  function selectCalendarDay(day: CalendarDay) {
+    if (!day.isSelectable || isLoadingSchedule || !!scheduleError) {
+      return;
+    }
+
+    const nextSelectedDate = new Date(`${day.value}T00:00:00`);
+    setCalendarMonth(
+      new Date(nextSelectedDate.getFullYear(), nextSelectedDate.getMonth(), 1)
+    );
+    selectDay(day);
+  }
+
   async function selectDay(day: DayOption) {
     if (scheduleError) {
       setFormMessage({
         text: "No se pudieron cargar los horarios de trabajo.",
+        type: "error"
+      });
+      return;
+    }
+
+    const selectedDate = new Date(`${day.value}T00:00:00`);
+
+    if (startOfLocalDay(selectedDate) < startOfLocalDay(new Date())) {
+      setAvailableHours([]);
+      setDayAppointments([]);
+      setDayBlockedTimes([]);
+      setFormData((currentForm) => ({ ...currentForm, day: "", hour: "" }));
+      setFormMessage({
+        text: "No puedes reservar un día que ya ha pasado.",
         type: "error"
       });
       return;
@@ -1211,13 +1330,11 @@ export default function Home() {
       return;
     }
 
-    const isAllowedDay = dayOptions.some(
-      (dayOption) => dayOption.value === formData.day
-    );
+    const bookingDate = new Date(`${formData.day}T00:00:00`);
 
-    if (!isAllowedDay) {
+    if (startOfLocalDay(bookingDate) < startOfLocalDay(new Date())) {
       setFormMessage({
-        text: "Solo puedes reservar dentro de los próximos 33 días.",
+        text: "No puedes reservar un día que ya ha pasado.",
         type: "error"
       });
       return;
@@ -2162,48 +2279,76 @@ export default function Home() {
             <span className="mb-2 block text-sm font-semibold text-white/70">
               Día
             </span>
-            <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
-              {dayOptions.map((day) => {
-                const isSelected = formData.day === day.value;
-                const isBlocked = blockedTimes.some(
-                  (blockedTime) =>
-                    blockedTime.block_date === day.value && blockedTime.is_full_day
-                );
-                const isClosed =
-                  !scheduleError && (!day.workingHour?.is_working || isBlocked);
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <button
+                  aria-label="Mes anterior"
+                  className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30 text-lg font-bold text-white transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                  onClick={() => changeCalendarMonth(-1)}
+                  type="button"
+                >
+                  ‹
+                </button>
+                <p className="min-w-0 flex-1 text-center text-base font-bold text-white">
+                  {calendarMonthTitle}
+                </p>
+                <button
+                  aria-label="Mes siguiente"
+                  className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30 text-lg font-bold text-white transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                  onClick={() => changeCalendarMonth(1)}
+                  type="button"
+                >
+                  ›
+                </button>
+              </div>
 
-  return (
-                  <button
-                    aria-disabled={isClosed || isLoadingSchedule || !!scheduleError}
-                    className={
-                      isSelected
-                        ? "min-w-28 rounded-2xl border border-barber-gold bg-barber-gold px-4 py-3 text-left text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98]"
-                        : isClosed
-                          ? "min-w-28 cursor-not-allowed rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-white/35 transition"
-                          : "min-w-28 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left text-white transition hover:border-barber-gold/50 active:scale-[0.98]"
-                    }
-                    key={day.value}
-                    onClick={() => selectDay(day)}
-                    type="button"
+              <div className="grid grid-cols-7 gap-1">
+                {calendarWeekDays.map((weekDay) => (
+                  <div
+                    className="py-2 text-center text-[11px] font-bold uppercase text-white/45"
+                    key={weekDay}
                   >
-                    <span className="block text-sm font-bold">{day.label}</span>
-                    <span
+                    {weekDay}
+                  </div>
+                ))}
+
+                {calendarDays.map((day) => {
+                  const isSelected = formData.day === day.value;
+                  const disabledReason = day.isPast
+                    ? "Pasado"
+                    : day.isBlocked
+                      ? "Bloqueado"
+                      : day.isClosed
+                        ? "Cerrado"
+                        : "";
+
+                  return (
+                    <button
+                      aria-disabled={!day.isSelectable || isLoadingSchedule || !!scheduleError}
                       className={
                         isSelected
-                          ? "mt-1 block text-xs font-semibold text-black/65"
-                          : "mt-1 block text-xs font-semibold text-white/55"
+                          ? "min-h-14 rounded-2xl border border-barber-gold bg-barber-gold p-1 text-center text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98]"
+                          : !day.isSelectable || isLoadingSchedule || !!scheduleError
+                            ? "min-h-14 cursor-not-allowed rounded-2xl border border-white/5 bg-black/10 p-1 text-center text-white/25"
+                            : day.isCurrentMonth
+                              ? "min-h-14 rounded-2xl border border-white/10 bg-black/30 p-1 text-center text-white transition hover:border-barber-gold/50 active:scale-[0.98]"
+                              : "min-h-14 rounded-2xl border border-white/5 bg-black/15 p-1 text-center text-white/40 transition hover:border-barber-gold/40 active:scale-[0.98]"
                       }
+                      disabled={!day.isSelectable || isLoadingSchedule || !!scheduleError}
+                      key={day.value}
+                      onClick={() => selectCalendarDay(day)}
+                      type="button"
                     >
-                      {day.dateText}
-                    </span>
-                    {isClosed && (
-                      <span className="mt-2 block text-xs font-bold text-red-200/80">
-                        {isBlocked ? "Bloqueado" : "Cerrado"}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                      <span className="block text-sm font-bold">{day.label}</span>
+                      {disabledReason && (
+                        <span className="mt-1 block text-[9px] font-bold leading-tight">
+                          {disabledReason}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             {scheduleError && (
               <p className="mt-2 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
