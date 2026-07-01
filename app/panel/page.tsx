@@ -167,6 +167,8 @@ export default function BarberPanel() {
     defaultBusinessSettings
   );
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
+  const [panelAccessDenied, setPanelAccessDenied] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -228,10 +230,10 @@ export default function BarberPanel() {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
-        setIsAuthenticated(true);
-        loadPanelData();
+        verifyAdminAccess();
       } else {
         clearPanelData();
+        setIsCheckingAdmin(false);
       }
     });
 
@@ -244,12 +246,12 @@ export default function BarberPanel() {
     const { data } = await supabase.auth.getSession();
 
     if (data.session) {
-      setIsAuthenticated(true);
-      loadPanelData();
+      await verifyAdminAccess();
       return;
     }
 
     clearPanelData();
+    setIsCheckingAdmin(false);
   }
 
   function loadPanelData() {
@@ -260,7 +262,7 @@ export default function BarberPanel() {
     loadBlockedTimes();
   }
 
-  function clearPanelData() {
+  function clearPanelData(keepAccessDenied = false) {
     setIsAuthenticated(false);
     setAppointments([]);
     setWorkingHours([]);
@@ -276,21 +278,50 @@ export default function BarberPanel() {
     setBlockMessage("");
     setSettingsMessage("");
     setSettingsMessageType("success");
+    if (!keepAccessDenied) {
+      setPanelAccessDenied(false);
+    }
+  }
+
+  async function verifyAdminAccess() {
+    setIsCheckingAdmin(true);
+    setPanelAccessDenied(false);
+
+    const { data, error } = await supabase.rpc("is_admin");
+
+    if (error || data !== true) {
+      if (error) {
+        console.error("Error checking admin permissions:", error);
+      }
+
+      clearPanelData(true);
+      setPanelAccessDenied(true);
+      setIsCheckingAdmin(false);
+      return;
+    }
+
+    setIsAuthenticated(true);
+    setPanelAccessDenied(false);
+    setIsCheckingAdmin(false);
+    loadPanelData();
   }
 
   async function handleLogin() {
+    setIsCheckingAdmin(true);
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password
     });
 
     if (error) {
+      setIsCheckingAdmin(false);
       setLoginError("Email o contraseña incorrectos.");
       return;
     }
 
     setLoginError("");
     setPassword("");
+    await verifyAdminAccess();
   }
 
   async function handleLogout() {
@@ -887,6 +918,45 @@ export default function BarberPanel() {
           </p>
         </div>
       </article>
+    );
+  }
+
+  if (isCheckingAdmin) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Comprobando permisos...
+          </h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (panelAccessDenied) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Acceso restringido
+          </h1>
+          <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
+            No tienes permiso para acceder al panel del barbero.
+          </p>
+          <Link
+            className="mt-4 block rounded-2xl border border-white/10 px-4 py-3 text-center text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
+            href="/"
+          >
+            Volver a la app
+          </Link>
+        </section>
+      </main>
     );
   }
 

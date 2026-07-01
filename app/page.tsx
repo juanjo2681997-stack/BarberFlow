@@ -411,12 +411,21 @@ function addMonths(date: Date, monthsToAdd: number) {
   return nextDate;
 }
 
-function getMostRecentWeekday(date: Date, weekDay: number) {
+function getSafeWeeklyReleaseDay(weekDay: number) {
   const safeWeekDay = Math.min(Math.max(Number(weekDay) || 0, 0), 6);
-  const currentDay = date.getDay();
-  const daysSinceRelease = (currentDay - safeWeekDay + 7) % 7;
 
-  return addDays(date, -daysSinceRelease);
+  return safeWeekDay;
+}
+
+function isTodayWeeklyReleaseDay(settings: BusinessSettings) {
+  return new Date().getDay() === getSafeWeeklyReleaseDay(settings.weekly_release_day);
+}
+
+function getWeeklyReleaseClosedMessage(settings: BusinessSettings) {
+  const releaseDayLabel =
+    weekDays[getSafeWeeklyReleaseDay(settings.weekly_release_day)] ?? weekDays[1];
+
+  return `Las reservas se abren los ${releaseDayLabel.toLowerCase()}.`;
 }
 
 function getMaxReservableDate(settings: BusinessSettings) {
@@ -436,10 +445,13 @@ function getMaxReservableDate(settings: BusinessSettings) {
   }
 
   if (settings.weekly_release_enabled) {
-    const releaseDay = getMostRecentWeekday(today, settings.weekly_release_day);
     const windowDays = Math.max(Number(settings.weekly_release_window_days) || 1, 1);
 
-    maxDates.push(addDays(releaseDay, windowDays - 1));
+    if (isTodayWeeklyReleaseDay(settings)) {
+      maxDates.push(addDays(today, windowDays - 1));
+    } else {
+      maxDates.push(addDays(today, -1));
+    }
   }
 
   if (maxDates.length === 0) {
@@ -633,6 +645,7 @@ export default function Home() {
   const [isSavingCustomerProfile, setIsSavingCustomerProfile] = useState(false);
   const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
     useState(false);
+  const [isCustomerAdmin, setIsCustomerAdmin] = useState(false);
 
   const secondaryLinks = [
     {
@@ -677,8 +690,9 @@ export default function Home() {
       : businessSettings.booking_limit_mode === "months"
         ? "meses"
         : "días";
-  const weeklyReleaseDayLabel =
-    weekDays[businessSettings.weekly_release_day] ?? weekDays[1];
+  const weeklyReleaseIsOpenToday = isTodayWeeklyReleaseDay(businessSettings);
+  const weeklyReleaseClosedMessage =
+    getWeeklyReleaseClosedMessage(businessSettings);
   const selectedService = services.find(
     (service) => formatServiceText(service) === formData.service
   );
@@ -739,6 +753,7 @@ export default function Home() {
         setCustomerUser(user);
         setIsCheckingCustomerSession(false);
         loadBusinessSettings();
+        checkCustomerAdminAccess();
         loadCustomerProfile(user.id);
         loadCustomerAppointments(user.id);
         return;
@@ -760,6 +775,40 @@ export default function Home() {
 
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (formData.day === "") {
+      return;
+    }
+
+    if (
+      businessSettings.weekly_release_enabled &&
+      !isTodayWeeklyReleaseDay(businessSettings)
+    ) {
+      setAvailableHours([]);
+      setDayAppointments([]);
+      setDayBlockedTimes([]);
+      setFormData((currentForm) => ({ ...currentForm, day: "", hour: "" }));
+      setFormMessage({
+        text: weeklyReleaseClosedMessage,
+        type: "error"
+      });
+      return;
+    }
+
+    const selectedDate = new Date(`${formData.day}T00:00:00`);
+
+    if (!isDateAllowedByBookingSettings(selectedDate, businessSettings)) {
+      setAvailableHours([]);
+      setDayAppointments([]);
+      setDayBlockedTimes([]);
+      setFormData((currentForm) => ({ ...currentForm, day: "", hour: "" }));
+      setFormMessage({
+        text: "Esta fecha no está disponible según la configuración de reservas.",
+        type: "error"
+      });
+    }
+  }, [businessSettings, formData.day, weeklyReleaseClosedMessage]);
 
   useEffect(() => {
     if (
@@ -951,6 +1000,7 @@ export default function Home() {
 
   function clearCustomerData() {
     setCustomerUser(null);
+    setIsCustomerAdmin(false);
     setCustomerProfile({
       user_id: "",
       full_name: "",
@@ -975,10 +1025,23 @@ export default function Home() {
     setCustomerUser(user);
     await Promise.all([
       loadBusinessSettings(),
+      checkCustomerAdminAccess(),
       loadCustomerProfile(user.id),
       loadCustomerAppointments(user.id)
     ]);
     setIsCheckingCustomerSession(false);
+  }
+
+  async function checkCustomerAdminAccess() {
+    const { data, error } = await supabase.rpc("is_admin");
+
+    if (error) {
+      console.error("Error checking admin permissions:", error);
+      setIsCustomerAdmin(false);
+      return;
+    }
+
+    setIsCustomerAdmin(data === true);
   }
 
   function updateCustomerAuthField(field: keyof CustomerAuthForm, value: string) {
@@ -1269,6 +1332,17 @@ export default function Home() {
   }
 
   function selectCalendarDay(day: CalendarDay) {
+    if (
+      businessSettings.weekly_release_enabled &&
+      !isTodayWeeklyReleaseDay(businessSettings)
+    ) {
+      setFormMessage({
+        text: weeklyReleaseClosedMessage,
+        type: "error"
+      });
+      return;
+    }
+
     if (!day.isSelectable || isLoadingSchedule || !!scheduleError) {
       return;
     }
@@ -1281,6 +1355,21 @@ export default function Home() {
   }
 
   async function selectDay(day: DayOption) {
+    if (
+      businessSettings.weekly_release_enabled &&
+      !isTodayWeeklyReleaseDay(businessSettings)
+    ) {
+      setAvailableHours([]);
+      setDayAppointments([]);
+      setDayBlockedTimes([]);
+      setFormData((currentForm) => ({ ...currentForm, day: "", hour: "" }));
+      setFormMessage({
+        text: weeklyReleaseClosedMessage,
+        type: "error"
+      });
+      return;
+    }
+
     if (scheduleError) {
       setFormMessage({
         text: "No se pudieron cargar los horarios de trabajo.",
@@ -1451,6 +1540,17 @@ export default function Home() {
     if (startOfLocalDay(bookingDate) < startOfLocalDay(new Date())) {
       setFormMessage({
         text: "No puedes reservar un día que ya ha pasado.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (
+      businessSettings.weekly_release_enabled &&
+      !isTodayWeeklyReleaseDay(businessSettings)
+    ) {
+      setFormMessage({
+        text: "Las reservas solo se pueden hacer el día de apertura configurado.",
         type: "error"
       });
       return;
@@ -2023,12 +2123,14 @@ export default function Home() {
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
               BARBERFLOW
             </p>
-            <Link
-              className="text-xs font-semibold text-white/40 transition hover:text-barber-gold"
-              href="/panel"
-            >
-              Acceso barbero
-            </Link>
+            {isCustomerAdmin && (
+              <Link
+                className="text-xs font-semibold text-white/40 transition hover:text-barber-gold"
+                href="/panel"
+              >
+                Acceso barbero
+              </Link>
+            )}
           </div>
 
           <div className="mb-9">
@@ -2411,10 +2513,14 @@ export default function Home() {
                     : "Sin límite de antelación configurado."}
                 </p>
                 {businessSettings.weekly_release_enabled && (
-                  <p>
-                    Apertura semanal activa: la agenda se abre cada{" "}
-                    {weeklyReleaseDayLabel.toLowerCase()} para{" "}
-                    {businessSettings.weekly_release_window_days} días.
+                  <p
+                    className={
+                      weeklyReleaseIsOpenToday ? "text-white/60" : "text-red-100"
+                    }
+                  >
+                    {weeklyReleaseIsOpenToday
+                      ? `Apertura semanal activa: hoy se abre la agenda para ${businessSettings.weekly_release_window_days} días.`
+                      : weeklyReleaseClosedMessage}
                   </p>
                 )}
               </div>
