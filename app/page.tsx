@@ -387,7 +387,9 @@ function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function normalizeBookingLimitMode(mode: string | null | undefined) {
+function normalizeBookingLimitMode(
+  mode: string | null | undefined
+): "days" | "weeks" | "months" {
   if (mode === "weeks" || mode === "months") {
     return mode;
   }
@@ -736,6 +738,7 @@ export default function Home() {
       if (user) {
         setCustomerUser(user);
         setIsCheckingCustomerSession(false);
+        loadBusinessSettings();
         loadCustomerProfile(user.id);
         loadCustomerAppointments(user.id);
         return;
@@ -819,11 +822,12 @@ export default function Home() {
       .maybeSingle();
 
     if (error || !data) {
+      console.error("Error loading business settings:", error);
       setBusinessSettings(defaultBusinessSettings);
       return;
     }
 
-    setBusinessSettings({
+    const nextBusinessSettings = {
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
       whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
@@ -849,7 +853,13 @@ export default function Home() {
         data.weekly_release_window_days ??
           defaultBusinessSettings.weekly_release_window_days
       )
-    });
+    };
+
+    if (process.env.NODE_ENV === "development") {
+      console.log("Booking settings loaded:", nextBusinessSettings);
+    }
+
+    setBusinessSettings(nextBusinessSettings);
   }
   async function loadServices() {
     setIsLoadingServices(true);
@@ -964,6 +974,7 @@ export default function Home() {
 
     setCustomerUser(user);
     await Promise.all([
+      loadBusinessSettings(),
       loadCustomerProfile(user.id),
       loadCustomerAppointments(user.id)
     ]);

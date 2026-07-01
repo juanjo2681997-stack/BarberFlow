@@ -140,7 +140,9 @@ function emptyToNull(value: string | null) {
   return value && value.trim() !== "" ? value : null;
 }
 
-function normalizeBookingLimitMode(mode: string | null | undefined) {
+function normalizeBookingLimitMode(
+  mode: string | null | undefined
+): "days" | "weeks" | "months" {
   if (mode === "weeks" || mode === "months") {
     return mode;
   }
@@ -159,6 +161,9 @@ export default function BarberPanel() {
   const [services, setServices] = useState<Service[]>([]);
   const [blockedTimes, setBlockedTimes] = useState<BlockedTime[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
+    defaultBusinessSettings
+  );
+  const [businessForm, setBusinessForm] = useState<BusinessSettings>(
     defaultBusinessSettings
   );
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -262,6 +267,7 @@ export default function BarberPanel() {
     setServices([]);
     setBlockedTimes([]);
     setBusinessSettings(defaultBusinessSettings);
+    setBusinessForm(defaultBusinessSettings);
     setIsLoading(false);
     setIsLoadingSchedule(false);
     setIsLoadingServices(false);
@@ -307,11 +313,13 @@ export default function BarberPanel() {
       .maybeSingle();
 
     if (error || !data) {
+      console.error("Error loading business settings:", error);
       setBusinessSettings(defaultBusinessSettings);
+      setBusinessForm(defaultBusinessSettings);
       return;
     }
 
-    setBusinessSettings({
+    const nextBusinessSettings = {
       id: data.id,
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
@@ -338,15 +346,18 @@ export default function BarberPanel() {
         data.weekly_release_window_days ??
           defaultBusinessSettings.weekly_release_window_days
       )
-    });
+    };
+
+    setBusinessSettings(nextBusinessSettings);
+    setBusinessForm(nextBusinessSettings);
   }
 
   function updateBusinessSetting(
     field: keyof BusinessSettings,
     value: string | number | boolean
   ) {
-    setBusinessSettings((currentSettings) => ({
-      ...currentSettings,
+    setBusinessForm((currentForm) => ({
+      ...currentForm,
       [field]: value
     }));
     setSettingsMessage("");
@@ -356,47 +367,35 @@ export default function BarberPanel() {
   async function saveBusinessSettings() {
     setSettingsMessage("");
 
-    let settingsId = businessSettings.id;
-
-    if (!settingsId) {
-      const { data, error } = await supabase
-        .from("business_settings")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-
-      if (error || !data?.id) {
-        console.error("Error saving business settings:", error);
-        setSettingsMessageType("error");
-        setSettingsMessage("No se pudo guardar la configuración.");
-        return;
-      }
-
-      settingsId = data.id;
+    if (!businessSettings.id) {
+      console.error("Error saving business settings:", "Missing business settings id");
+      setSettingsMessageType("error");
+      setSettingsMessage("No se pudo guardar la configuración.");
+      return;
     }
 
     const settingsToSave = {
-      business_name: businessSettings.business_name.trim(),
-      slogan: businessSettings.slogan.trim(),
-      whatsapp_phone: businessSettings.whatsapp_phone.trim(),
-      whatsapp_message: businessSettings.whatsapp_message.trim(),
-      instagram_url: businessSettings.instagram_url.trim(),
-      address: businessSettings.address.trim(),
-      main_button_text: businessSettings.main_button_text.trim(),
-      booking_limit_enabled: businessSettings.booking_limit_enabled,
-      booking_limit_value: Number(businessSettings.booking_limit_value) || 31,
-      booking_limit_mode: businessSettings.booking_limit_mode,
-      weekly_release_enabled: businessSettings.weekly_release_enabled,
-      weekly_release_day: Number(businessSettings.weekly_release_day),
+      business_name: businessForm.business_name.trim(),
+      slogan: businessForm.slogan.trim(),
+      whatsapp_phone: businessForm.whatsapp_phone.trim(),
+      whatsapp_message: businessForm.whatsapp_message.trim(),
+      instagram_url: businessForm.instagram_url.trim(),
+      address: businessForm.address.trim(),
+      main_button_text: businessForm.main_button_text.trim(),
+      booking_limit_enabled: businessForm.booking_limit_enabled,
+      booking_limit_value: Number(businessForm.booking_limit_value),
+      booking_limit_mode: businessForm.booking_limit_mode,
+      weekly_release_enabled: businessForm.weekly_release_enabled,
+      weekly_release_day: Number(businessForm.weekly_release_day),
       weekly_release_window_days:
-        Number(businessSettings.weekly_release_window_days) || 7,
+        Number(businessForm.weekly_release_window_days),
       updated_at: new Date().toISOString()
     };
 
     const { error } = await supabase
       .from("business_settings")
       .update(settingsToSave)
-      .eq("id", settingsId);
+      .eq("id", businessSettings.id);
 
     if (error) {
       console.error("Error saving business settings:", error);
@@ -407,6 +406,14 @@ export default function BarberPanel() {
 
     setSettingsMessageType("success");
     setSettingsMessage("Configuración guardada correctamente.");
+    setBusinessSettings((currentSettings) => ({
+      ...currentSettings,
+      ...settingsToSave
+    }));
+    setBusinessForm((currentForm) => ({
+      ...currentForm,
+      ...settingsToSave
+    }));
     await loadBusinessSettings(false);
   }
   async function loadAppointments() {
@@ -1043,7 +1050,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("business_name", event.target.value)
                       }
                       type="text"
-                      value={businessSettings.business_name}
+                      value={businessForm.business_name}
                     />
                   </label>
 
@@ -1057,7 +1064,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("slogan", event.target.value)
                       }
                       type="text"
-                      value={businessSettings.slogan}
+                      value={businessForm.slogan}
                     />
                   </label>
 
@@ -1071,7 +1078,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("whatsapp_phone", event.target.value)
                       }
                       type="tel"
-                      value={businessSettings.whatsapp_phone}
+                      value={businessForm.whatsapp_phone}
                     />
                   </label>
 
@@ -1084,7 +1091,7 @@ export default function BarberPanel() {
                       onChange={(event) =>
                         updateBusinessSetting("whatsapp_message", event.target.value)
                       }
-                      value={businessSettings.whatsapp_message}
+                      value={businessForm.whatsapp_message}
                     />
                   </label>
 
@@ -1098,7 +1105,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("instagram_url", event.target.value)
                       }
                       type="url"
-                      value={businessSettings.instagram_url}
+                      value={businessForm.instagram_url}
                     />
                   </label>
 
@@ -1112,7 +1119,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("address", event.target.value)
                       }
                       type="text"
-                      value={businessSettings.address}
+                      value={businessForm.address}
                     />
                   </label>
 
@@ -1126,7 +1133,7 @@ export default function BarberPanel() {
                         updateBusinessSetting("main_button_text", event.target.value)
                       }
                       type="text"
-                      value={businessSettings.main_button_text}
+                      value={businessForm.main_button_text}
                     />
                   </label>
 
@@ -1141,7 +1148,7 @@ export default function BarberPanel() {
                     <div className="mt-4 space-y-4">
                       <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
                         <input
-                          checked={businessSettings.booking_limit_enabled}
+                          checked={businessForm.booking_limit_enabled}
                           className="mt-1 h-4 w-4 accent-barber-gold"
                           onChange={(event) =>
                             updateBusinessSetting(
@@ -1176,7 +1183,7 @@ export default function BarberPanel() {
                               )
                             }
                             type="number"
-                            value={businessSettings.booking_limit_value}
+                            value={businessForm.booking_limit_value}
                           />
                         </label>
 
@@ -1192,7 +1199,7 @@ export default function BarberPanel() {
                                 normalizeBookingLimitMode(event.target.value)
                               )
                             }
-                            value={businessSettings.booking_limit_mode}
+                            value={businessForm.booking_limit_mode}
                           >
                             <option className="bg-barber-gray" value="days">
                               días
@@ -1209,7 +1216,7 @@ export default function BarberPanel() {
 
                       <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
                         <input
-                          checked={businessSettings.weekly_release_enabled}
+                          checked={businessForm.weekly_release_enabled}
                           className="mt-1 h-4 w-4 accent-barber-gold"
                           onChange={(event) =>
                             updateBusinessSetting(
@@ -1242,7 +1249,7 @@ export default function BarberPanel() {
                                 Number(event.target.value)
                               )
                             }
-                            value={businessSettings.weekly_release_day}
+                            value={businessForm.weekly_release_day}
                           >
                             <option className="bg-barber-gray" value={0}>
                               Domingo
@@ -1282,7 +1289,7 @@ export default function BarberPanel() {
                               )
                             }
                             type="number"
-                            value={businessSettings.weekly_release_window_days}
+                            value={businessForm.weekly_release_window_days}
                           />
                         </label>
                       </div>
