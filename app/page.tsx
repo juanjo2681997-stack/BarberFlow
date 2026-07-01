@@ -66,6 +66,12 @@ type BusinessSettings = {
   instagram_url: string;
   address: string;
   main_button_text: string;
+  booking_limit_enabled: boolean;
+  booking_limit_value: number;
+  booking_limit_mode: "days" | "weeks" | "months";
+  weekly_release_enabled: boolean;
+  weekly_release_day: number;
+  weekly_release_window_days: number;
 };
 
 type DayOption = {
@@ -79,6 +85,7 @@ type DayOption = {
 type CalendarDay = DayOption & {
   isCurrentMonth: boolean;
   isPast: boolean;
+  isAfterMaxDate: boolean;
   isBlocked: boolean;
   isClosed: boolean;
   isSelectable: boolean;
@@ -171,7 +178,13 @@ const defaultBusinessSettings: BusinessSettings = {
   whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
   instagram_url: "https://www.instagram.com/peluqueria_pablos?igsh=MWdrbXhoY3Rvbmp2Mw==",
   address: "Calle San Francisco,13, 21800, Moguer (Huelva)",
-  main_button_text: "Reservar cita"
+  main_button_text: "Reservar cita",
+  booking_limit_enabled: true,
+  booking_limit_value: 31,
+  booking_limit_mode: "days",
+  weekly_release_enabled: false,
+  weekly_release_day: 1,
+  weekly_release_window_days: 7
 };
 
 const initialForm: BookingForm = {
@@ -374,10 +387,83 @@ function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function normalizeBookingLimitMode(mode: string | null | undefined) {
+  if (mode === "weeks" || mode === "months") {
+    return mode;
+  }
+
+  return "days";
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
+function addMonths(date: Date, monthsToAdd: number) {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + monthsToAdd);
+
+  return nextDate;
+}
+
+function getMostRecentWeekday(date: Date, weekDay: number) {
+  const safeWeekDay = Math.min(Math.max(Number(weekDay) || 0, 0), 6);
+  const currentDay = date.getDay();
+  const daysSinceRelease = (currentDay - safeWeekDay + 7) % 7;
+
+  return addDays(date, -daysSinceRelease);
+}
+
+function getMaxReservableDate(settings: BusinessSettings) {
+  const today = startOfLocalDay(new Date());
+  const maxDates: Date[] = [];
+
+  if (settings.booking_limit_enabled) {
+    const limitValue = Math.max(Number(settings.booking_limit_value) || 0, 0);
+
+    if (settings.booking_limit_mode === "weeks") {
+      maxDates.push(addDays(today, limitValue * 7));
+    } else if (settings.booking_limit_mode === "months") {
+      maxDates.push(addMonths(today, limitValue));
+    } else {
+      maxDates.push(addDays(today, limitValue));
+    }
+  }
+
+  if (settings.weekly_release_enabled) {
+    const releaseDay = getMostRecentWeekday(today, settings.weekly_release_day);
+    const windowDays = Math.max(Number(settings.weekly_release_window_days) || 1, 1);
+
+    maxDates.push(addDays(releaseDay, windowDays - 1));
+  }
+
+  if (maxDates.length === 0) {
+    return null;
+  }
+
+  return maxDates.reduce((earliestDate, currentDate) =>
+    currentDate < earliestDate ? currentDate : earliestDate
+  );
+}
+
+function isDateAllowedByBookingSettings(date: Date, settings: BusinessSettings) {
+  const maxReservableDate = getMaxReservableDate(settings);
+
+  if (!maxReservableDate) {
+    return true;
+  }
+
+  return startOfLocalDay(date) <= startOfLocalDay(maxReservableDate);
+}
+
 function getCalendarDays(
   calendarMonth: Date,
   workingHours: WorkingHour[],
-  blockedTimes: BlockedTime[]
+  blockedTimes: BlockedTime[],
+  maxReservableDate: Date | null
 ) {
   const today = startOfLocalDay(new Date());
   const firstDayOfMonth = new Date(
@@ -401,6 +487,9 @@ function getCalendarDays(
         blockedTime.block_date === value && blockedTime.is_full_day
     );
     const isClosed = !workingHour?.is_working;
+    const isAfterMaxDate =
+      maxReservableDate !== null &&
+      startOfLocalDay(date) > startOfLocalDay(maxReservableDate);
 
     return {
       value,
@@ -410,9 +499,10 @@ function getCalendarDays(
       workingHour,
       isCurrentMonth: date.getMonth() === calendarMonth.getMonth(),
       isPast,
+      isAfterMaxDate,
       isBlocked,
       isClosed,
-      isSelectable: !isPast && !isBlocked && !isClosed
+      isSelectable: !isPast && !isAfterMaxDate && !isBlocked && !isClosed
     };
   });
 }
@@ -490,33 +580,6 @@ function getBlockedHours(
   return hours.filter((hour) => blockOverlaps(hour, durationMinutes, blockedTimes));
 }
 
-function getNextThirtyThreeDays(workingHours: WorkingHour[]) {
-  const today = new Date();
-
-  return Array.from({ length: 33 }, (_, index): DayOption => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-
-    let label = weekDays[date.getDay()];
-
-    if (index === 0) {
-      label = "Hoy";
-    }
-
-    if (index === 1) {
-      label = "Mañana";
-    }
-
-    return {
-      value: formatDateForSupabase(date),
-      label,
-      dateText: `${date.getDate()} ${months[date.getMonth()]}`,
-      dayOfWeek: date.getDay(),
-      workingHour: getWorkingHoursForDate(date, workingHours)
-    };
-  });
-}
-
 export default function Home() {
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
@@ -588,7 +651,13 @@ export default function Home() {
     }
   ];
 
-  const calendarDays = getCalendarDays(calendarMonth, workingHours, blockedTimes);
+  const maxReservableDate = getMaxReservableDate(businessSettings);
+  const calendarDays = getCalendarDays(
+    calendarMonth,
+    workingHours,
+    blockedTimes,
+    maxReservableDate
+  );
   const selectedDate = formData.day ? new Date(`${formData.day}T00:00:00`) : null;
   const selectedDay = selectedDate
     ? {
@@ -600,6 +669,14 @@ export default function Home() {
       }
     : undefined;
   const calendarMonthTitle = `${fullMonths[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`;
+  const bookingLimitUnitLabel =
+    businessSettings.booking_limit_mode === "weeks"
+      ? "semanas"
+      : businessSettings.booking_limit_mode === "months"
+        ? "meses"
+        : "días";
+  const weeklyReleaseDayLabel =
+    weekDays[businessSettings.weekly_release_day] ?? weekDays[1];
   const selectedService = services.find(
     (service) => formatServiceText(service) === formData.service
   );
@@ -736,7 +813,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text"
+        "business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .limit(1)
       .maybeSingle();
@@ -755,7 +832,23 @@ export default function Home() {
       instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
       address: data.address || defaultBusinessSettings.address,
       main_button_text:
-        data.main_button_text || defaultBusinessSettings.main_button_text
+        data.main_button_text || defaultBusinessSettings.main_button_text,
+      booking_limit_enabled:
+        data.booking_limit_enabled ?? defaultBusinessSettings.booking_limit_enabled,
+      booking_limit_value: Number(
+        data.booking_limit_value ?? defaultBusinessSettings.booking_limit_value
+      ),
+      booking_limit_mode: normalizeBookingLimitMode(data.booking_limit_mode),
+      weekly_release_enabled:
+        data.weekly_release_enabled ??
+        defaultBusinessSettings.weekly_release_enabled,
+      weekly_release_day: Number(
+        data.weekly_release_day ?? defaultBusinessSettings.weekly_release_day
+      ),
+      weekly_release_window_days: Number(
+        data.weekly_release_window_days ??
+          defaultBusinessSettings.weekly_release_window_days
+      )
     });
   }
   async function loadServices() {
@@ -1199,6 +1292,18 @@ export default function Home() {
       return;
     }
 
+    if (!isDateAllowedByBookingSettings(selectedDate, businessSettings)) {
+      setAvailableHours([]);
+      setDayAppointments([]);
+      setDayBlockedTimes([]);
+      setFormData((currentForm) => ({ ...currentForm, day: "", hour: "" }));
+      setFormMessage({
+        text: "Esta fecha no está disponible según la configuración de reservas.",
+        type: "error"
+      });
+      return;
+    }
+
     const workingHour = day.workingHour;
     const isBlockedDay = blockedTimes.some(
       (blockedTime) =>
@@ -1335,6 +1440,14 @@ export default function Home() {
     if (startOfLocalDay(bookingDate) < startOfLocalDay(new Date())) {
       setFormMessage({
         text: "No puedes reservar un día que ya ha pasado.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (!isDateAllowedByBookingSettings(bookingDate, businessSettings)) {
+      setFormMessage({
+        text: "Esta fecha no está disponible según la configuración de reservas.",
         type: "error"
       });
       return;
@@ -2280,6 +2393,21 @@ export default function Home() {
               Día
             </span>
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-4 space-y-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold leading-5 text-white/60">
+                <p>
+                  {businessSettings.booking_limit_enabled
+                    ? `Puedes reservar hasta con ${businessSettings.booking_limit_value} ${bookingLimitUnitLabel} de antelación.`
+                    : "Sin límite de antelación configurado."}
+                </p>
+                {businessSettings.weekly_release_enabled && (
+                  <p>
+                    Apertura semanal activa: la agenda se abre cada{" "}
+                    {weeklyReleaseDayLabel.toLowerCase()} para{" "}
+                    {businessSettings.weekly_release_window_days} días.
+                  </p>
+                )}
+              </div>
+
               <div className="mb-4 flex items-center justify-between gap-3">
                 <button
                   aria-label="Mes anterior"
@@ -2316,6 +2444,8 @@ export default function Home() {
                   const isSelected = formData.day === day.value;
                   const disabledReason = day.isPast
                     ? "Pasado"
+                    : day.isAfterMaxDate
+                      ? "No disponible"
                     : day.isBlocked
                       ? "Bloqueado"
                       : day.isClosed

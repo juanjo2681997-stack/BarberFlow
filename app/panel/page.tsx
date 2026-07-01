@@ -70,6 +70,12 @@ type BusinessSettings = {
   instagram_url: string;
   address: string;
   main_button_text: string;
+  booking_limit_enabled: boolean;
+  booking_limit_value: number;
+  booking_limit_mode: "days" | "weeks" | "months";
+  weekly_release_enabled: boolean;
+  weekly_release_day: number;
+  weekly_release_window_days: number;
 };
 
 type PanelSectionKey =
@@ -89,7 +95,13 @@ const defaultBusinessSettings: BusinessSettings = {
   whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
   instagram_url: "https://www.instagram.com/peluqueria_pablos?igsh=MWdrbXhoY3Rvbmp2Mw==",
   address: "Calle San Francisco,13, 21800, Moguer (Huelva)",
-  main_button_text: "Reservar cita"
+  main_button_text: "Reservar cita",
+  booking_limit_enabled: true,
+  booking_limit_value: 31,
+  booking_limit_mode: "days",
+  weekly_release_enabled: false,
+  weekly_release_day: 1,
+  weekly_release_window_days: 7
 };
 
 const whatsAppMessage =
@@ -126,6 +138,14 @@ function formatDateForSupabase(date: Date) {
 
 function emptyToNull(value: string | null) {
   return value && value.trim() !== "" ? value : null;
+}
+
+function normalizeBookingLimitMode(mode: string | null | undefined) {
+  if (mode === "weeks" || mode === "months") {
+    return mode;
+  }
+
+  return "days";
 }
 
 function timeToMinutes(time: string) {
@@ -281,7 +301,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text"
+        "id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .limit(1)
       .maybeSingle();
@@ -301,11 +321,30 @@ export default function BarberPanel() {
       instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
       address: data.address || defaultBusinessSettings.address,
       main_button_text:
-        data.main_button_text || defaultBusinessSettings.main_button_text
+        data.main_button_text || defaultBusinessSettings.main_button_text,
+      booking_limit_enabled:
+        data.booking_limit_enabled ?? defaultBusinessSettings.booking_limit_enabled,
+      booking_limit_value: Number(
+        data.booking_limit_value ?? defaultBusinessSettings.booking_limit_value
+      ),
+      booking_limit_mode: normalizeBookingLimitMode(data.booking_limit_mode),
+      weekly_release_enabled:
+        data.weekly_release_enabled ??
+        defaultBusinessSettings.weekly_release_enabled,
+      weekly_release_day: Number(
+        data.weekly_release_day ?? defaultBusinessSettings.weekly_release_day
+      ),
+      weekly_release_window_days: Number(
+        data.weekly_release_window_days ??
+          defaultBusinessSettings.weekly_release_window_days
+      )
     });
   }
 
-  function updateBusinessSetting(field: keyof BusinessSettings, value: string) {
+  function updateBusinessSetting(
+    field: keyof BusinessSettings,
+    value: string | number | boolean
+  ) {
     setBusinessSettings((currentSettings) => ({
       ...currentSettings,
       [field]: value
@@ -344,6 +383,13 @@ export default function BarberPanel() {
       instagram_url: businessSettings.instagram_url.trim(),
       address: businessSettings.address.trim(),
       main_button_text: businessSettings.main_button_text.trim(),
+      booking_limit_enabled: businessSettings.booking_limit_enabled,
+      booking_limit_value: Number(businessSettings.booking_limit_value) || 31,
+      booking_limit_mode: businessSettings.booking_limit_mode,
+      weekly_release_enabled: businessSettings.weekly_release_enabled,
+      weekly_release_day: Number(businessSettings.weekly_release_day),
+      weekly_release_window_days:
+        Number(businessSettings.weekly_release_window_days) || 7,
       updated_at: new Date().toISOString()
     };
 
@@ -1083,6 +1129,170 @@ export default function BarberPanel() {
                       value={businessSettings.main_button_text}
                     />
                   </label>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <h3 className="text-lg font-bold text-white">
+                      Configuración de reservas
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-white/60">
+                      Define con cuánta antelación pueden reservar tus clientes.
+                    </p>
+
+                    <div className="mt-4 space-y-4">
+                      <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <input
+                          checked={businessSettings.booking_limit_enabled}
+                          className="mt-1 h-4 w-4 accent-barber-gold"
+                          onChange={(event) =>
+                            updateBusinessSetting(
+                              "booking_limit_enabled",
+                              event.target.checked
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <span className="block text-sm font-bold text-white">
+                            Activar límite de antelación
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-white/55">
+                            Limita hasta qué fecha se puede reservar.
+                          </span>
+                        </span>
+                      </label>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="mb-2 block text-xs font-semibold text-white/60">
+                            Número de antelación
+                          </span>
+                          <input
+                            className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                            min="1"
+                            onChange={(event) =>
+                              updateBusinessSetting(
+                                "booking_limit_value",
+                                Number(event.target.value)
+                              )
+                            }
+                            type="number"
+                            value={businessSettings.booking_limit_value}
+                          />
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block text-xs font-semibold text-white/60">
+                            Unidad
+                          </span>
+                          <select
+                            className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                            onChange={(event) =>
+                              updateBusinessSetting(
+                                "booking_limit_mode",
+                                normalizeBookingLimitMode(event.target.value)
+                              )
+                            }
+                            value={businessSettings.booking_limit_mode}
+                          >
+                            <option className="bg-barber-gray" value="days">
+                              días
+                            </option>
+                            <option className="bg-barber-gray" value="weeks">
+                              semanas
+                            </option>
+                            <option className="bg-barber-gray" value="months">
+                              meses
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <input
+                          checked={businessSettings.weekly_release_enabled}
+                          className="mt-1 h-4 w-4 accent-barber-gold"
+                          onChange={(event) =>
+                            updateBusinessSetting(
+                              "weekly_release_enabled",
+                              event.target.checked
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          <span className="block text-sm font-bold text-white">
+                            Activar apertura semanal de agenda
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-white/55">
+                            La agenda se abre por bloques semanales.
+                          </span>
+                        </span>
+                      </label>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="mb-2 block text-xs font-semibold text-white/60">
+                            Día de apertura semanal
+                          </span>
+                          <select
+                            className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                            onChange={(event) =>
+                              updateBusinessSetting(
+                                "weekly_release_day",
+                                Number(event.target.value)
+                              )
+                            }
+                            value={businessSettings.weekly_release_day}
+                          >
+                            <option className="bg-barber-gray" value={0}>
+                              Domingo
+                            </option>
+                            <option className="bg-barber-gray" value={1}>
+                              Lunes
+                            </option>
+                            <option className="bg-barber-gray" value={2}>
+                              Martes
+                            </option>
+                            <option className="bg-barber-gray" value={3}>
+                              Miércoles
+                            </option>
+                            <option className="bg-barber-gray" value={4}>
+                              Jueves
+                            </option>
+                            <option className="bg-barber-gray" value={5}>
+                              Viernes
+                            </option>
+                            <option className="bg-barber-gray" value={6}>
+                              Sábado
+                            </option>
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <span className="mb-2 block text-xs font-semibold text-white/60">
+                            Días que se abren
+                          </span>
+                          <input
+                            className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                            min="1"
+                            onChange={(event) =>
+                              updateBusinessSetting(
+                                "weekly_release_window_days",
+                                Number(event.target.value)
+                              )
+                            }
+                            type="number"
+                            value={businessSettings.weekly_release_window_days}
+                          />
+                        </label>
+                      </div>
+
+                      <p className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-xs font-semibold leading-5 text-barber-gold">
+                        Ejemplo: si activas apertura semanal, eliges lunes y 7
+                        días, la agenda se abre cada lunes para esa semana.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <button
