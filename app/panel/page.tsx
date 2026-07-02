@@ -18,6 +18,11 @@ type Appointment = {
   reminder_error: string | null;
 };
 
+type ExistingAppointment = {
+  appointment_time: string;
+  duration_minutes: number | null;
+};
+
 type WorkingHour = {
   id: string;
   day_of_week: number;
@@ -61,6 +66,14 @@ type NewBlockedTimeForm = {
   reason: string;
 };
 
+type ManualAppointmentForm = {
+  customer_name: string;
+  customer_phone: string;
+  service_id: string;
+  appointment_date: string;
+  appointment_time: string;
+};
+
 type BusinessSettings = {
   id: string;
   business_name: string;
@@ -81,6 +94,7 @@ type BusinessSettings = {
 type PanelSectionKey =
   | "today"
   | "future"
+  | "manual"
   | "reminders"
   | "settings"
   | "services"
@@ -112,6 +126,16 @@ const reminderStatusLabels: Record<string, string> = {
   sent: "Enviado",
   failed: "Fallido"
 };
+
+const initialManualAppointmentForm: ManualAppointmentForm = {
+  customer_name: "",
+  customer_phone: "",
+  service_id: "",
+  appointment_date: "",
+  appointment_time: ""
+};
+
+const mainBarber = "Pablo";
 
 function createWhatsAppLink(phone: string) {
   const cleanPhone = phone.replace(/\D/g, "");
@@ -153,6 +177,148 @@ function normalizeBookingLimitMode(
 function timeToMinutes(time: string) {
   const [hours, minutes] = formatAppointmentTime(time).split(":").map(Number);
   return hours * 60 + minutes;
+}
+
+function minutesToTime(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function generateSlots(start: string | null, end: string | null, slotMinutes: number) {
+  if (!start || !end || slotMinutes <= 0) {
+    return [];
+  }
+
+  const slots: string[] = [];
+  const startMinutes = timeToMinutes(start);
+  const endMinutes = timeToMinutes(end);
+
+  for (let minutes = startMinutes; minutes < endMinutes; minutes += slotMinutes) {
+    slots.push(minutesToTime(minutes));
+  }
+
+  return slots;
+}
+
+function getAvailableHours(workingHour?: WorkingHour) {
+  if (!workingHour || !workingHour.is_working) {
+    return [];
+  }
+
+  const slotMinutes = Number(workingHour.slot_minutes) || 30;
+
+  return [
+    ...generateSlots(workingHour.morning_start, workingHour.morning_end, slotMinutes),
+    ...generateSlots(
+      workingHour.afternoon_start,
+      workingHour.afternoon_end,
+      slotMinutes
+    )
+  ];
+}
+
+function getWorkingHoursForDate(date: Date, workingHours: WorkingHour[]) {
+  const dayOfWeek = date.getDay();
+
+  return workingHours.find(
+    (workingHour) => Number(workingHour.day_of_week) === dayOfWeek
+  );
+}
+
+function getCurrentTimeInfo() {
+  const now = new Date();
+
+  return {
+    today: formatDateForSupabase(now),
+    minutes: now.getHours() * 60 + now.getMinutes()
+  };
+}
+
+function isPastHourForToday(
+  day: string,
+  hour: string,
+  today: string,
+  currentMinutes: number
+) {
+  if (day !== today || hour === "") {
+    return false;
+  }
+
+  return timeToMinutes(hour) <= currentMinutes;
+}
+
+function getPastHours(
+  hours: string[],
+  day: string,
+  today: string,
+  currentMinutes: number
+) {
+  if (day !== today) {
+    return [];
+  }
+
+  return hours.filter((hour) => timeToMinutes(hour) <= currentMinutes);
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function rangesOverlap(
+  startTime: string,
+  durationMinutes: number,
+  blockedStart: string,
+  blockedEnd: string
+) {
+  const newStart = timeToMinutes(startTime);
+  const newEnd = newStart + durationMinutes;
+  const existingStart = timeToMinutes(blockedStart);
+  const existingEnd = timeToMinutes(blockedEnd);
+
+  return newStart < existingEnd && newEnd > existingStart;
+}
+
+function appointmentOverlaps(
+  startTime: string,
+  durationMinutes: number,
+  existingAppointments: ExistingAppointment[]
+) {
+  return existingAppointments.some((appointment) =>
+    rangesOverlap(
+      startTime,
+      durationMinutes,
+      appointment.appointment_time,
+      minutesToTime(
+        timeToMinutes(appointment.appointment_time) +
+          (appointment.duration_minutes || 30)
+      )
+    )
+  );
+}
+
+function blockOverlaps(
+  startTime: string,
+  durationMinutes: number,
+  blockedTimes: BlockedTime[]
+) {
+  return blockedTimes.some((blockedTime) => {
+    if (blockedTime.is_full_day) {
+      return true;
+    }
+
+    if (!blockedTime.start_time || !blockedTime.end_time) {
+      return false;
+    }
+
+    return rangesOverlap(
+      startTime,
+      durationMinutes,
+      blockedTime.start_time,
+      blockedTime.end_time
+    );
+  });
 }
 
 export default function BarberPanel() {
@@ -197,9 +363,18 @@ export default function BarberPanel() {
     end_time: "",
     reason: ""
   });
+  const [manualAppointment, setManualAppointment] =
+    useState<ManualAppointmentForm>(initialManualAppointmentForm);
+  const [manualAvailableHours, setManualAvailableHours] = useState<string[]>([]);
+  const [isLoadingManualHours, setIsLoadingManualHours] = useState(false);
+  const [manualMessage, setManualMessage] = useState("");
+  const [manualMessageType, setManualMessageType] = useState<"success" | "error">(
+    "success"
+  );
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     today: true,
     future: true,
+    manual: true,
     reminders: false,
     settings: false,
     services: false,
@@ -242,6 +417,20 @@ export default function BarberPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    refreshManualAvailableHours();
+  }, [
+    isAuthenticated,
+    manualAppointment.service_id,
+    manualAppointment.appointment_date,
+    services,
+    workingHours
+  ]);
+
   async function checkSession() {
     const { data } = await supabase.auth.getSession();
 
@@ -270,12 +459,17 @@ export default function BarberPanel() {
     setBlockedTimes([]);
     setBusinessSettings(defaultBusinessSettings);
     setBusinessForm(defaultBusinessSettings);
+    setManualAppointment(initialManualAppointmentForm);
+    setManualAvailableHours([]);
+    setIsLoadingManualHours(false);
     setIsLoading(false);
     setIsLoadingSchedule(false);
     setIsLoadingServices(false);
     setIsLoadingBlockedTimes(false);
     setServiceMessage("");
     setBlockMessage("");
+    setManualMessage("");
+    setManualMessageType("success");
     setSettingsMessage("");
     setSettingsMessageType("success");
     if (!keepAccessDenied) {
@@ -632,6 +826,244 @@ export default function BarberPanel() {
     }
 
     setServices((data ?? []) as Service[]);
+  }
+
+  function updateManualAppointment(
+    field: keyof ManualAppointmentForm,
+    value: string
+  ) {
+    setManualAppointment((currentForm) => ({
+      ...currentForm,
+      [field]: value,
+      appointment_time:
+        field === "service_id" || field === "appointment_date"
+          ? ""
+          : currentForm.appointment_time
+    }));
+    setManualMessage("");
+    setManualMessageType("success");
+  }
+
+  function isPastDate(dateValue: string) {
+    if (dateValue === "") {
+      return false;
+    }
+
+    return (
+      startOfLocalDay(new Date(`${dateValue}T00:00:00`)) <
+      startOfLocalDay(new Date())
+    );
+  }
+
+  async function calculateManualAvailableHoursFor(
+    dateValue: string,
+    durationMinutes: number
+  ) {
+    if (isPastDate(dateValue)) {
+      return {
+        hours: [],
+        message: "No se puede crear una cita en una fecha pasada."
+      };
+    }
+
+    const selectedDate = new Date(`${dateValue}T00:00:00`);
+    const workingHour = getWorkingHoursForDate(selectedDate, workingHours);
+
+    if (!workingHour || !workingHour.is_working) {
+      return {
+        hours: [],
+        message: "La barbería está cerrada ese día."
+      };
+    }
+
+    const [appointmentsResult, blockedTimesResult] = await Promise.all([
+      supabase
+        .from("appointment_slots")
+        .select("appointment_time, duration_minutes")
+        .eq("appointment_date", dateValue),
+      supabase
+        .from("blocked_times")
+        .select("id, block_date, is_full_day, start_time, end_time, reason")
+        .eq("block_date", dateValue)
+    ]);
+
+    if (appointmentsResult.error || blockedTimesResult.error) {
+      return {
+        hours: [],
+        message: "No se pudieron cargar las horas disponibles."
+      };
+    }
+
+    const dayAppointments =
+      (appointmentsResult.data ?? []) as ExistingAppointment[];
+    const dayBlockedTimes = (blockedTimesResult.data ?? []) as BlockedTime[];
+
+    if (dayBlockedTimes.some((blockedTime) => blockedTime.is_full_day)) {
+      return {
+        hours: [],
+        message: "Ese día está bloqueado."
+      };
+    }
+
+    const allHours = getAvailableHours(workingHour);
+    const currentTimeInfo = getCurrentTimeInfo();
+    const pastHours = getPastHours(
+      allHours,
+      dateValue,
+      currentTimeInfo.today,
+      currentTimeInfo.minutes
+    );
+    const availableHours = allHours.filter(
+      (hour) =>
+        !pastHours.includes(hour) &&
+        !appointmentOverlaps(hour, durationMinutes, dayAppointments) &&
+        !blockOverlaps(hour, durationMinutes, dayBlockedTimes)
+    );
+
+    return {
+      hours: availableHours,
+      message:
+        availableHours.length === 0
+          ? "No hay horas disponibles para ese día."
+          : ""
+    };
+  }
+
+  async function refreshManualAvailableHours() {
+    if (
+      manualAppointment.service_id.trim() === "" ||
+      manualAppointment.appointment_date.trim() === ""
+    ) {
+      setManualAvailableHours([]);
+      return;
+    }
+
+    const selectedService = services.find(
+      (service) => service.id === manualAppointment.service_id
+    );
+
+    if (!selectedService) {
+      setManualAvailableHours([]);
+      return;
+    }
+
+    setIsLoadingManualHours(true);
+    const result = await calculateManualAvailableHoursFor(
+      manualAppointment.appointment_date,
+      selectedService.duration_minutes
+    );
+    setIsLoadingManualHours(false);
+    setManualAvailableHours(result.hours);
+
+    if (
+      manualAppointment.appointment_time !== "" &&
+      !result.hours.includes(manualAppointment.appointment_time)
+    ) {
+      setManualAppointment((currentForm) => ({
+        ...currentForm,
+        appointment_time: ""
+      }));
+    }
+
+    if (result.message) {
+      setManualMessageType("error");
+      setManualMessage(result.message);
+      return;
+    }
+
+    setManualMessage("");
+    setManualMessageType("success");
+  }
+
+  async function createManualAppointment() {
+    const selectedService = services.find(
+      (service) => service.id === manualAppointment.service_id
+    );
+
+    if (
+      manualAppointment.customer_name.trim() === "" ||
+      manualAppointment.customer_phone.trim() === "" ||
+      manualAppointment.service_id.trim() === "" ||
+      manualAppointment.appointment_date.trim() === "" ||
+      manualAppointment.appointment_time.trim() === ""
+    ) {
+      setManualMessageType("error");
+      setManualMessage("Rellena nombre, teléfono, servicio, fecha y hora.");
+      return;
+    }
+
+    if (!selectedService) {
+      setManualMessageType("error");
+      setManualMessage("Elige un servicio válido.");
+      return;
+    }
+
+    if (isPastDate(manualAppointment.appointment_date)) {
+      setManualMessageType("error");
+      setManualMessage("No se puede crear una cita en una fecha pasada.");
+      return;
+    }
+
+    const currentTimeInfo = getCurrentTimeInfo();
+
+    if (
+      isPastHourForToday(
+        manualAppointment.appointment_date,
+        manualAppointment.appointment_time,
+        currentTimeInfo.today,
+        currentTimeInfo.minutes
+      )
+    ) {
+      setManualMessageType("error");
+      setManualMessage("No se puede crear una cita en una hora que ya ha pasado.");
+      return;
+    }
+
+    setIsLoadingManualHours(true);
+    const result = await calculateManualAvailableHoursFor(
+      manualAppointment.appointment_date,
+      selectedService.duration_minutes
+    );
+    setIsLoadingManualHours(false);
+    setManualAvailableHours(result.hours);
+
+    if (!result.hours.includes(manualAppointment.appointment_time)) {
+      setManualMessageType("error");
+      setManualMessage(
+        result.message || "Esa hora ya no está disponible. Elige otra hora."
+      );
+      setManualAppointment((currentForm) => ({
+        ...currentForm,
+        appointment_time: ""
+      }));
+      return;
+    }
+
+    const { error } = await supabase.from("appointments").insert({
+      id: crypto.randomUUID(),
+      service: selectedService.name,
+      appointment_date: manualAppointment.appointment_date,
+      appointment_time: manualAppointment.appointment_time,
+      customer_name: manualAppointment.customer_name.trim(),
+      customer_phone: manualAppointment.customer_phone.trim(),
+      customer_user_id: null,
+      barber_name: mainBarber,
+      duration_minutes: selectedService.duration_minutes,
+      reminder_status: "pending"
+    });
+
+    if (error) {
+      console.error("Error creating manual appointment:", error);
+      setManualMessageType("error");
+      setManualMessage("No se pudo crear la cita.");
+      return;
+    }
+
+    setManualAppointment(initialManualAppointmentForm);
+    setManualAvailableHours([]);
+    setManualMessageType("success");
+    setManualMessage("Cita creada correctamente.");
+    await loadAppointments();
   }
 
   function updateService(
@@ -1081,6 +1513,152 @@ export default function BarberPanel() {
               {futureAppointments.length}
             </p>
           </div>
+        </section>
+
+        <section className="mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("manual", "Crear cita manual")}
+          {openSections.manual && (
+            <div className="mt-4 space-y-4">
+              <p className="text-sm leading-6 text-white/65">
+                Crea una cita para clientes que llaman, escriben por WhatsApp o
+                reservan en persona.
+              </p>
+
+              {manualMessage && (
+                <p
+                  className={
+                    manualMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
+                  {manualMessage}
+                </p>
+              )}
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Nombre del cliente
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateManualAppointment("customer_name", event.target.value)
+                      }
+                      placeholder="Nombre y apellidos"
+                      type="text"
+                      value={manualAppointment.customer_name}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Teléfono del cliente
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateManualAppointment("customer_phone", event.target.value)
+                      }
+                      placeholder="600 000 000"
+                      type="tel"
+                      value={manualAppointment.customer_phone}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Servicio
+                    </span>
+                    <select
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateManualAppointment("service_id", event.target.value)
+                      }
+                      value={manualAppointment.service_id}
+                    >
+                      <option className="bg-barber-gray" value="">
+                        Elige un servicio
+                      </option>
+                      {services
+                        .filter((service) => service.is_active)
+                        .map((service) => (
+                          <option
+                            className="bg-barber-gray"
+                            key={service.id}
+                            value={service.id}
+                          >
+                            {service.name} · {service.duration_minutes} min
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Fecha
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      min={today}
+                      onChange={(event) =>
+                        updateManualAppointment(
+                          "appointment_date",
+                          event.target.value
+                        )
+                      }
+                      type="date"
+                      value={manualAppointment.appointment_date}
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-2">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Hora disponible
+                    </span>
+                    <select
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={
+                        isLoadingManualHours ||
+                        manualAppointment.service_id === "" ||
+                        manualAppointment.appointment_date === "" ||
+                        manualAvailableHours.length === 0
+                      }
+                      onChange={(event) =>
+                        updateManualAppointment(
+                          "appointment_time",
+                          event.target.value
+                        )
+                      }
+                      value={manualAppointment.appointment_time}
+                    >
+                      <option className="bg-barber-gray" value="">
+                        {isLoadingManualHours
+                          ? "Cargando horas..."
+                          : "Elige una hora"}
+                      </option>
+                      {manualAvailableHours.map((hour) => (
+                        <option className="bg-barber-gray" key={hour} value={hour}>
+                          {formatAppointmentTime(hour)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <button
+                  className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isLoadingManualHours}
+                  onClick={createManualAppointment}
+                  type="button"
+                >
+                  Crear cita
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="mt-8">
