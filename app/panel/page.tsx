@@ -832,14 +832,20 @@ export default function BarberPanel() {
     field: keyof ManualAppointmentForm,
     value: string
   ) {
-    setManualAppointment((currentForm) => ({
-      ...currentForm,
-      [field]: value,
-      appointment_time:
-        field === "service_id" || field === "appointment_date"
-          ? ""
-          : currentForm.appointment_time
-    }));
+    setManualAppointment((currentForm) => {
+      if (field === "service_id" || field === "appointment_date") {
+        return {
+          ...currentForm,
+          [field]: value,
+          appointment_time: ""
+        };
+      }
+
+      return {
+        ...currentForm,
+        [field]: value
+      };
+    });
     setManualMessage("");
     setManualMessageType("success");
   }
@@ -984,11 +990,16 @@ export default function BarberPanel() {
       manualAppointment.customer_name.trim() === "" ||
       manualAppointment.customer_phone.trim() === "" ||
       manualAppointment.service_id.trim() === "" ||
-      manualAppointment.appointment_date.trim() === "" ||
-      manualAppointment.appointment_time.trim() === ""
+      manualAppointment.appointment_date.trim() === ""
     ) {
       setManualMessageType("error");
-      setManualMessage("Rellena nombre, teléfono, servicio, fecha y hora.");
+      setManualMessage("Rellena nombre, teléfono, servicio y fecha.");
+      return;
+    }
+
+    if (manualAppointment.appointment_time.trim() === "") {
+      setManualMessageType("error");
+      setManualMessage("Elige una hora.");
       return;
     }
 
@@ -1626,12 +1637,13 @@ export default function BarberPanel() {
                         manualAppointment.appointment_date === "" ||
                         manualAvailableHours.length === 0
                       }
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        console.log("Hora manual seleccionada:", event.target.value);
                         updateManualAppointment(
                           "appointment_time",
                           event.target.value
-                        )
-                      }
+                        );
+                      }}
                       value={manualAppointment.appointment_time}
                     >
                       <option className="bg-barber-gray" value="">
