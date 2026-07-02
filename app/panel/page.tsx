@@ -1625,39 +1625,55 @@ export default function BarberPanel() {
                     />
                   </label>
 
-                  <label className="block sm:col-span-2">
+                  <div className="block sm:col-span-2">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Hora disponible
                     </span>
-                    <select
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={
-                        isLoadingManualHours ||
-                        manualAppointment.service_id === "" ||
-                        manualAppointment.appointment_date === "" ||
-                        manualAvailableHours.length === 0
-                      }
-                      onChange={(event) => {
-                        console.log("Hora manual seleccionada:", event.target.value);
-                        updateManualAppointment(
-                          "appointment_time",
-                          event.target.value
-                        );
-                      }}
-                      value={manualAppointment.appointment_time}
-                    >
-                      <option className="bg-barber-gray" value="">
-                        {isLoadingManualHours
-                          ? "Cargando horas..."
-                          : "Elige una hora"}
-                      </option>
-                      {manualAvailableHours.map((hour) => (
-                        <option className="bg-barber-gray" key={hour} value={hour}>
-                          {formatAppointmentTime(hour)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    {isLoadingManualHours ? (
+                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                        Cargando horas...
+                      </p>
+                    ) : manualAvailableHours.length === 0 ? (
+                      <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                        No hay horas disponibles para ese día.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {manualAvailableHours.map((hour) => {
+                          const isSelected =
+                            manualAppointment.appointment_time === hour;
+
+                          return (
+                            <button
+                              className={
+                                isSelected
+                                  ? "rounded-2xl border border-barber-gold bg-barber-gold px-3 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98]"
+                                  : "rounded-2xl border border-white/10 bg-black/30 px-3 py-3 text-sm font-bold text-white transition hover:border-barber-gold/60 hover:text-barber-gold active:scale-[0.98]"
+                              }
+                              key={hour}
+                              onClick={() =>
+                                setManualAppointment((currentForm) => ({
+                                  ...currentForm,
+                                  appointment_time: hour
+                                }))
+                              }
+                              type="button"
+                            >
+                              {formatAppointmentTime(hour)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-white/70">
+                      Hora seleccionada:{" "}
+                      <span className="text-barber-gold">
+                        {manualAppointment.appointment_time
+                          ? formatAppointmentTime(manualAppointment.appointment_time)
+                          : "ninguna"}
+                      </span>
+                    </p>
+                  </div>
                 </div>
 
                 <button
