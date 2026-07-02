@@ -1486,7 +1486,7 @@ export default function BarberPanel() {
 
   return (
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
-      <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+      <section className="mx-auto flex w-full max-w-md flex-col rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <header className="mb-8 space-y-5">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
             BARBERFLOW
@@ -1526,7 +1526,7 @@ export default function BarberPanel() {
           </div>
         </section>
 
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
             <div className="mt-4 space-y-4">
@@ -1689,7 +1689,7 @@ export default function BarberPanel() {
           )}
         </section>
 
-        <section className="mt-8">
+        <section className="order-1 mt-8">
           {renderAccordionHeader("today", "Citas de hoy")}
           {openSections.today && (
             <div className="mt-4 space-y-4">
@@ -1711,7 +1711,7 @@ export default function BarberPanel() {
           )}
         </section>
 
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-2 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("future", "Próximas citas")}
           {openSections.future && (
             <div className="mt-4 space-y-4">
@@ -1735,7 +1735,7 @@ export default function BarberPanel() {
           )}
         </section>
 
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-3 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("reminders", "Recordatorios de mañana")}
           {openSections.reminders && (
             <div className="mt-4 space-y-4">
@@ -1805,7 +1805,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-8 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("settings", "Configuración del negocio")}
           {openSections.settings && (
             <div className="mt-4 space-y-4">
@@ -2096,7 +2096,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-5 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("services", "Servicios y precios")}
           {openSections.services && (
             <div className="mt-4 space-y-4">
@@ -2278,12 +2278,12 @@ export default function BarberPanel() {
 
 
         {errorMessage && (
-          <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+          <p className="order-5 mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
             {errorMessage}
           </p>
         )}
 
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-7 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("blocks", "Bloquear horario")}
           {openSections.blocks && (
             <div className="mt-4 space-y-4">
@@ -2445,7 +2445,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="mt-8 border-t border-white/10 pt-6">
+        <section className="order-6 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("schedule", "Horario de trabajo")}
           {openSections.schedule && (
             <div className="mt-4 space-y-4">
