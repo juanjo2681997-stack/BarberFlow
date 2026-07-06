@@ -74,6 +74,16 @@ type ManualAppointmentForm = {
   appointment_time: string;
 };
 
+type EditAppointmentForm = {
+  id: string;
+  customer_name: string;
+  customer_phone: string;
+  service_id: string;
+  appointment_date: string;
+  appointment_time: string;
+  duration_minutes: number;
+};
+
 type BusinessSettings = {
   id: string;
   business_name: string;
@@ -134,6 +144,16 @@ const initialManualAppointmentForm: ManualAppointmentForm = {
   appointment_time: ""
 };
 
+const initialEditAppointmentForm: EditAppointmentForm = {
+  id: "",
+  customer_name: "",
+  customer_phone: "",
+  service_id: "",
+  appointment_date: "",
+  appointment_time: "",
+  duration_minutes: 30
+};
+
 const mainBarber = "Pablo";
 
 const fullMonths = [
@@ -162,6 +182,28 @@ function createWhatsAppLink(phone: string) {
   return `https://wa.me/${phoneWithCountryCode}?text=${encodeURIComponent(
     whatsAppMessage
   )}`;
+}
+
+function normalizeWhatsAppPhone(phone: string) {
+  const cleanPhone = phone.replace(/\D/g, "");
+
+  if (cleanPhone.length === 9 && /^[67]/.test(cleanPhone)) {
+    return `34${cleanPhone}`;
+  }
+
+  return cleanPhone;
+}
+
+function createAppointmentWhatsAppLink(
+  appointment: Appointment,
+  businessName: string
+) {
+  const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+  const message = `Hola ${appointment.customer_name}, te recordamos tu cita en ${businessName} el día ${appointment.appointment_date} a las ${formatAppointmentTime(
+    appointment.appointment_time
+  )} para ${appointment.service}. ¡Gracias!`;
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
 function formatAppointmentTime(time: string) {
@@ -421,6 +463,14 @@ export default function BarberPanel() {
 
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
+  const [agendaMessage, setAgendaMessage] = useState("");
+  const [agendaMessageType, setAgendaMessageType] = useState<"success" | "error">(
+    "success"
+  );
+  const [editingAppointment, setEditingAppointment] =
+    useState<EditAppointmentForm | null>(null);
+  const [editAvailableHours, setEditAvailableHours] = useState<string[]>([]);
+  const [isLoadingEditHours, setIsLoadingEditHours] = useState(false);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
     manual: true,
@@ -498,6 +548,22 @@ export default function BarberPanel() {
     workingHours
   ]);
 
+  useEffect(() => {
+    if (!editingAppointment) {
+      return;
+    }
+
+    refreshEditAvailableHours(editingAppointment);
+  }, [
+    editingAppointment?.id,
+    editingAppointment?.service_id,
+    editingAppointment?.appointment_date,
+    services,
+    workingHours,
+    appointments,
+    blockedTimes
+  ]);
+
   async function checkSession() {
     const { data } = await supabase.auth.getSession();
 
@@ -529,6 +595,11 @@ export default function BarberPanel() {
     setManualAppointment(initialManualAppointmentForm);
     setManualAvailableHours([]);
     setIsLoadingManualHours(false);
+    setAgendaMessage("");
+    setAgendaMessageType("success");
+    setEditingAppointment(null);
+    setEditAvailableHours([]);
+    setIsLoadingEditHours(false);
     setIsLoading(false);
     setIsLoadingSchedule(false);
     setIsLoadingServices(false);
@@ -1142,6 +1213,293 @@ export default function BarberPanel() {
     setManualMessageType("success");
     setManualMessage("Cita creada correctamente.");
     await loadAppointments();
+  }
+
+  function calculateEditAvailableHoursFor(
+    dateValue: string,
+    durationMinutes: number,
+    excludedAppointmentId: string
+  ) {
+    if (isPastDate(dateValue)) {
+      return {
+        hours: [],
+        message: "No se puede modificar una cita a una fecha pasada."
+      };
+    }
+
+    const selectedDate = new Date(`${dateValue}T00:00:00`);
+    const workingHour = getWorkingHoursForDate(selectedDate, workingHours);
+
+    if (!workingHour || !workingHour.is_working) {
+      return {
+        hours: [],
+        message: "La barbería está cerrada ese día."
+      };
+    }
+
+    const dayBlockedTimes = blockedTimes.filter(
+      (blockedTime) => blockedTime.block_date === dateValue
+    );
+
+    if (dayBlockedTimes.some((blockedTime) => blockedTime.is_full_day)) {
+      return {
+        hours: [],
+        message: "Ese día está bloqueado."
+      };
+    }
+
+    const otherAppointments = appointments
+      .filter(
+        (appointment) =>
+          appointment.appointment_date === dateValue &&
+          appointment.id !== excludedAppointmentId
+      )
+      .map((appointment) => ({
+        appointment_time: appointment.appointment_time,
+        duration_minutes: appointment.duration_minutes
+      }));
+    const allHours = getAvailableHours(workingHour);
+    const currentTimeInfo = getCurrentTimeInfo();
+    const pastHours = getPastHours(
+      allHours,
+      dateValue,
+      currentTimeInfo.today,
+      currentTimeInfo.minutes
+    );
+    const availableHours = allHours.filter(
+      (hour) =>
+        !pastHours.includes(hour) &&
+        !appointmentOverlaps(hour, durationMinutes, otherAppointments) &&
+        !blockOverlaps(hour, durationMinutes, dayBlockedTimes)
+    );
+
+    return {
+      hours: availableHours,
+      message:
+        availableHours.length === 0
+          ? "No hay horas disponibles para ese día."
+          : ""
+    };
+  }
+
+  function refreshEditAvailableHours(form: EditAppointmentForm) {
+    const selectedService = services.find((service) => service.id === form.service_id);
+
+    if (!selectedService || form.appointment_date.trim() === "") {
+      setEditAvailableHours([]);
+      return;
+    }
+
+    setIsLoadingEditHours(true);
+    const result = calculateEditAvailableHoursFor(
+      form.appointment_date,
+      selectedService.duration_minutes,
+      form.id
+    );
+    setIsLoadingEditHours(false);
+    setEditAvailableHours(result.hours);
+
+    if (
+      form.appointment_time !== "" &&
+      !result.hours.includes(form.appointment_time)
+    ) {
+      setEditingAppointment((currentForm) =>
+        currentForm ? { ...currentForm, appointment_time: "" } : currentForm
+      );
+    }
+  }
+
+  function openEditAppointment(appointment: Appointment) {
+    const selectedService = services.find(
+      (service) => service.name === appointment.service
+    );
+
+    setAgendaMessage("");
+    setAgendaMessageType("success");
+    setEditingAppointment({
+      id: appointment.id,
+      customer_name: appointment.customer_name,
+      customer_phone: appointment.customer_phone,
+      service_id: selectedService?.id ?? "",
+      appointment_date: appointment.appointment_date,
+      appointment_time: formatAppointmentTime(appointment.appointment_time),
+      duration_minutes: appointment.duration_minutes || selectedService?.duration_minutes || 30
+    });
+  }
+
+  function updateEditingAppointment(
+    field: Exclude<keyof EditAppointmentForm, "duration_minutes">,
+    value: string
+  ) {
+    setEditingAppointment((currentForm) => {
+      if (!currentForm) {
+        return currentForm;
+      }
+
+      if (field === "service_id") {
+        const selectedService = services.find((service) => service.id === value);
+
+        return {
+          ...currentForm,
+          service_id: value,
+          duration_minutes:
+            selectedService?.duration_minutes ?? currentForm.duration_minutes,
+          appointment_time: ""
+        };
+      }
+
+      if (field === "appointment_date") {
+        return {
+          ...currentForm,
+          appointment_date: value,
+          appointment_time: ""
+        };
+      }
+
+      return {
+        ...currentForm,
+        [field]: value
+      };
+    });
+    setAgendaMessage("");
+    setAgendaMessageType("success");
+  }
+
+  async function saveEditedAppointment() {
+    if (!editingAppointment) {
+      return;
+    }
+
+    const selectedService = services.find(
+      (service) => service.id === editingAppointment.service_id
+    );
+
+    if (
+      editingAppointment.customer_name.trim() === "" ||
+      editingAppointment.customer_phone.trim() === "" ||
+      editingAppointment.service_id.trim() === "" ||
+      editingAppointment.appointment_date.trim() === ""
+    ) {
+      setAgendaMessageType("error");
+      setAgendaMessage("Rellena nombre, teléfono, servicio y fecha.");
+      return;
+    }
+
+    if (editingAppointment.appointment_time.trim() === "") {
+      setAgendaMessageType("error");
+      setAgendaMessage("Elige una hora.");
+      return;
+    }
+
+    if (!selectedService) {
+      setAgendaMessageType("error");
+      setAgendaMessage("Elige un servicio válido.");
+      return;
+    }
+
+    if (isPastDate(editingAppointment.appointment_date)) {
+      setAgendaMessageType("error");
+      setAgendaMessage("No se puede modificar una cita a una fecha pasada.");
+      return;
+    }
+
+    const currentTimeInfo = getCurrentTimeInfo();
+
+    if (
+      isPastHourForToday(
+        editingAppointment.appointment_date,
+        editingAppointment.appointment_time,
+        currentTimeInfo.today,
+        currentTimeInfo.minutes
+      )
+    ) {
+      setAgendaMessageType("error");
+      setAgendaMessage("No se puede elegir una hora que ya ha pasado.");
+      return;
+    }
+
+    const result = calculateEditAvailableHoursFor(
+      editingAppointment.appointment_date,
+      selectedService.duration_minutes,
+      editingAppointment.id
+    );
+
+    setEditAvailableHours(result.hours);
+
+    if (!result.hours.includes(editingAppointment.appointment_time)) {
+      setAgendaMessageType("error");
+      setAgendaMessage(
+        result.message || "Esa hora ya no está disponible. Elige otra hora."
+      );
+      setEditingAppointment((currentForm) =>
+        currentForm ? { ...currentForm, appointment_time: "" } : currentForm
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        customer_name: editingAppointment.customer_name.trim(),
+        customer_phone: editingAppointment.customer_phone.trim(),
+        service: selectedService.name,
+        appointment_date: editingAppointment.appointment_date,
+        appointment_time: editingAppointment.appointment_time,
+        duration_minutes: selectedService.duration_minutes
+      })
+      .eq("id", editingAppointment.id);
+
+    if (error) {
+      console.error("Error updating appointment:", error);
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo modificar la cita.");
+      return;
+    }
+
+    setEditingAppointment(null);
+    setEditAvailableHours([]);
+    setAgendaMessageType("success");
+    setAgendaMessage("Cita modificada correctamente.");
+    await loadAppointments();
+  }
+
+  async function deleteAgendaAppointment(id: string) {
+    const confirmed = window.confirm("¿Seguro que quieres eliminar esta cita?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    const { error } = await supabase.from("appointments").delete().eq("id", id);
+
+    if (error) {
+      console.error("Error deleting appointment:", error);
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo eliminar la cita.");
+      return;
+    }
+
+    setAgendaMessageType("success");
+    setAgendaMessage("Cita eliminada correctamente.");
+    await loadAppointments();
+  }
+
+  function openAppointmentWhatsApp(appointment: Appointment) {
+    const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+
+    if (!phone) {
+      setAgendaMessageType("error");
+      setAgendaMessage("Esta cita no tiene teléfono.");
+      return;
+    }
+
+    const businessName =
+      businessSettings.business_name || defaultBusinessSettings.business_name;
+    window.open(
+      createAppointmentWhatsAppLink(appointment, businessName),
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   function updateService(
@@ -1878,6 +2236,185 @@ export default function BarberPanel() {
                 <span className="text-barber-gold">{agendaDate}</span>
               </p>
 
+              {agendaMessage && (
+                <p
+                  className={
+                    agendaMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
+                  {agendaMessage}
+                </p>
+              )}
+
+              {editingAppointment && (
+                <div className="rounded-2xl border border-barber-gold/40 bg-black/40 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">
+                        Modificar cita
+                      </h3>
+                      <p className="mt-1 text-xs font-semibold text-white/50">
+                        Actualiza los datos y elige una hora disponible.
+                      </p>
+                    </div>
+                    <button
+                      className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/65 transition hover:border-barber-gold/50 hover:text-barber-gold"
+                      onClick={() => {
+                        setEditingAppointment(null);
+                        setEditAvailableHours([]);
+                      }}
+                      type="button"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Nombre del cliente
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEditingAppointment(
+                            "customer_name",
+                            event.target.value
+                          )
+                        }
+                        type="text"
+                        value={editingAppointment.customer_name}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Teléfono
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEditingAppointment(
+                            "customer_phone",
+                            event.target.value
+                          )
+                        }
+                        type="tel"
+                        value={editingAppointment.customer_phone}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Servicio
+                      </span>
+                      <select
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEditingAppointment("service_id", event.target.value)
+                        }
+                        value={editingAppointment.service_id}
+                      >
+                        <option className="bg-barber-gray" value="">
+                          Elige un servicio
+                        </option>
+                        {services.map((service) => (
+                          <option
+                            className="bg-barber-gray"
+                            key={service.id}
+                            value={service.id}
+                          >
+                            {service.name} · {service.duration_minutes} min
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Fecha
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                        min={today}
+                        onChange={(event) =>
+                          updateEditingAppointment(
+                            "appointment_date",
+                            event.target.value
+                          )
+                        }
+                        type="date"
+                        value={editingAppointment.appointment_date}
+                      />
+                    </label>
+
+                    <div className="sm:col-span-2">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Hora
+                      </span>
+                      {isLoadingEditHours ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                          Cargando horas...
+                        </p>
+                      ) : editAvailableHours.length === 0 ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                          No hay horas disponibles para ese día.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                          {editAvailableHours.map((hour) => {
+                            const isSelected =
+                              editingAppointment.appointment_time === hour;
+
+                            return (
+                              <button
+                                className={
+                                  isSelected
+                                    ? "rounded-2xl border border-barber-gold bg-barber-gold px-3 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98]"
+                                    : "rounded-2xl border border-white/10 bg-black/30 px-3 py-3 text-sm font-bold text-white transition hover:border-barber-gold/60 hover:text-barber-gold active:scale-[0.98]"
+                                }
+                                key={hour}
+                                onClick={() =>
+                                  updateEditingAppointment(
+                                    "appointment_time",
+                                    hour
+                                  )
+                                }
+                                type="button"
+                              >
+                                {formatAppointmentTime(hour)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      className="rounded-2xl border border-white/10 px-4 py-3 text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                      onClick={() => {
+                        setEditingAppointment(null);
+                        setEditAvailableHours([]);
+                      }}
+                      type="button"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className="rounded-2xl bg-barber-gold px-4 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                      onClick={saveEditedAppointment}
+                      type="button"
+                    >
+                      Guardar cambios
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {isLoading || isLoadingSchedule || isLoadingBlockedTimes ? (
                 <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
                   Cargando agenda...
@@ -1930,6 +2467,29 @@ export default function BarberPanel() {
                             <p className="mt-1 text-xs font-semibold text-white/55">
                               Tel: {appointment.customer_phone}
                             </p>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                              <button
+                                className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
+                                onClick={() => openEditAppointment(appointment)}
+                                type="button"
+                              >
+                                Modificar
+                              </button>
+                              <button
+                                className="rounded-full border border-red-400/45 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98]"
+                                onClick={() => deleteAgendaAppointment(appointment.id)}
+                                type="button"
+                              >
+                                Eliminar
+                              </button>
+                              <button
+                                className="rounded-full border border-green-400/45 px-3 py-2 text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                                onClick={() => openAppointmentWhatsApp(appointment)}
+                                type="button"
+                              >
+                                WhatsApp
+                              </button>
+                            </div>
                           </div>
                         )}
 
