@@ -92,9 +92,7 @@ type BusinessSettings = {
 };
 
 type PanelSectionKey =
-  | "today"
   | "dayAgenda"
-  | "future"
   | "manual"
   | "reminders"
   | "settings"
@@ -137,6 +135,23 @@ const initialManualAppointmentForm: ManualAppointmentForm = {
 };
 
 const mainBarber = "Pablo";
+
+const fullMonths = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre"
+];
+
+const calendarWeekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 function createWhatsAppLink(phone: string) {
   const cleanPhone = phone.replace(/\D/g, "");
@@ -267,6 +282,32 @@ function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function getAgendaCalendarDays(calendarMonth: Date, selectedDate: string) {
+  const today = formatDateForSupabase(new Date());
+  const firstDayOfMonth = new Date(
+    calendarMonth.getFullYear(),
+    calendarMonth.getMonth(),
+    1
+  );
+  const firstCalendarDay = new Date(firstDayOfMonth);
+  const mondayOffset = (firstDayOfMonth.getDay() + 6) % 7;
+  firstCalendarDay.setDate(firstDayOfMonth.getDate() - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstCalendarDay);
+    date.setDate(firstCalendarDay.getDate() + index);
+    const value = formatDateForSupabase(date);
+
+    return {
+      value,
+      label: String(date.getDate()),
+      isCurrentMonth: date.getMonth() === calendarMonth.getMonth(),
+      isSelected: value === selectedDate,
+      isToday: value === today
+    };
+  });
+}
+
 function rangesOverlap(
   startTime: string,
   durationMinutes: number,
@@ -375,10 +416,13 @@ export default function BarberPanel() {
   const [agendaDate, setAgendaDate] = useState(() =>
     formatDateForSupabase(new Date())
   );
+  const [agendaCalendarMonth, setAgendaCalendarMonth] = useState(() => {
+    const today = new Date();
+
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
-    today: true,
     dayAgenda: true,
-    future: true,
     manual: true,
     reminders: false,
     settings: false,
@@ -396,12 +440,13 @@ export default function BarberPanel() {
   const tomorrowAppointments = appointments.filter(
     (appointment) => appointment.appointment_date === tomorrow
   );
-  const todayAppointments = appointments.filter(
-    (appointment) => appointment.appointment_date === today
+  const agendaCalendarDays = getAgendaCalendarDays(
+    agendaCalendarMonth,
+    agendaDate
   );
-  const futureAppointments = appointments.filter(
-    (appointment) => appointment.appointment_date > today
-  );
+  const agendaCalendarTitle = `${
+    fullMonths[agendaCalendarMonth.getMonth()]
+  } ${agendaCalendarMonth.getFullYear()}`;
   const agendaSelectedDate = new Date(`${agendaDate}T00:00:00`);
   const agendaWorkingHour = getWorkingHoursForDate(
     agendaSelectedDate,
@@ -1369,6 +1414,24 @@ export default function BarberPanel() {
     };
   }
 
+  function changeAgendaCalendarMonth(monthsToAdd: number) {
+    setAgendaCalendarMonth((currentMonth) => {
+      const nextMonth = new Date(currentMonth);
+      nextMonth.setMonth(currentMonth.getMonth() + monthsToAdd);
+
+      return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1);
+    });
+  }
+
+  function selectAgendaCalendarDay(dayValue: string) {
+    const nextDate = new Date(`${dayValue}T00:00:00`);
+
+    setAgendaDate(dayValue);
+    setAgendaCalendarMonth(
+      new Date(nextDate.getFullYear(), nextDate.getMonth(), 1)
+    );
+  }
+
   function renderAccordionHeader(section: PanelSectionKey, title: string) {
     const isOpen = openSections[section];
 
@@ -1589,22 +1652,7 @@ export default function BarberPanel() {
           </div>
         </header>
 
-        <section className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm font-semibold text-white/60">Citas de hoy</p>
-            <p className="mt-3 text-3xl font-bold text-barber-gold">
-              {todayAppointments.length}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm font-semibold text-white/60">Próximas citas</p>
-            <p className="mt-3 text-3xl font-bold text-barber-gold">
-              {futureAppointments.length}
-            </p>
-          </div>
-        </section>
-
-        <section className="order-5 mt-8 border-t border-white/10 pt-6">
+        <section className="order-3 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
             <div className="mt-4 space-y-4">
@@ -1768,42 +1816,67 @@ export default function BarberPanel() {
         </section>
 
         <section className="order-1 mt-8">
-          {renderAccordionHeader("today", "Citas de hoy")}
-          {openSections.today && (
-            <div className="mt-4 space-y-4">
-
-          {isLoading ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
-              Cargando citas...
-            </p>
-          ) : todayAppointments.length === 0 ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
-              No tienes citas para hoy.
-            </p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {todayAppointments.map((appointment) => renderAppointment(appointment))}
-            </div>
-          )}
-            </div>
-          )}
-        </section>
-
-        <section className="order-2 mt-8 border-t border-white/10 pt-6">
-          {renderAccordionHeader("dayAgenda", "Agenda del día")}
+          {renderAccordionHeader("dayAgenda", "Agenda")}
           {openSections.dayAgenda && (
             <div className="mt-4 space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-xs font-semibold text-white/60">
-                  Fecha
-                </span>
-                <input
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
-                  onChange={(event) => setAgendaDate(event.target.value)}
-                  type="date"
-                  value={agendaDate}
-                />
-              </label>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <button
+                    aria-label="Mes anterior"
+                    className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30 text-lg font-bold text-white transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                    onClick={() => changeAgendaCalendarMonth(-1)}
+                    type="button"
+                  >
+                    ‹
+                  </button>
+                  <p className="min-w-0 flex-1 text-center text-base font-bold text-white">
+                    {agendaCalendarTitle}
+                  </p>
+                  <button
+                    aria-label="Mes siguiente"
+                    className="h-11 w-11 rounded-2xl border border-white/10 bg-black/30 text-lg font-bold text-white transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                    onClick={() => changeAgendaCalendarMonth(1)}
+                    type="button"
+                  >
+                    ›
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {calendarWeekDays.map((weekDay) => (
+                    <div
+                      className="py-2 text-center text-[11px] font-bold uppercase text-white/45"
+                      key={weekDay}
+                    >
+                      {weekDay}
+                    </div>
+                  ))}
+
+                  {agendaCalendarDays.map((day) => (
+                    <button
+                      className={
+                        day.isSelected
+                          ? "min-h-12 rounded-2xl border border-barber-gold bg-barber-gold p-1 text-center text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98]"
+                          : day.isToday
+                            ? "min-h-12 rounded-2xl border border-barber-gold/50 bg-black/30 p-1 text-center text-sm font-bold text-barber-gold transition hover:border-barber-gold active:scale-[0.98]"
+                            : day.isCurrentMonth
+                              ? "min-h-12 rounded-2xl border border-white/10 bg-black/30 p-1 text-center text-sm font-bold text-white transition hover:border-barber-gold/50 active:scale-[0.98]"
+                              : "min-h-12 rounded-2xl border border-white/5 bg-black/15 p-1 text-center text-sm font-bold text-white/35 transition hover:border-barber-gold/40 active:scale-[0.98]"
+                      }
+                      key={day.value}
+                      onClick={() => selectAgendaCalendarDay(day.value)}
+                      type="button"
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs font-semibold text-white/60">
+                Día seleccionado:{" "}
+                <span className="text-barber-gold">{agendaDate}</span>
+              </p>
 
               {isLoading || isLoadingSchedule || isLoadingBlockedTimes ? (
                 <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
@@ -1899,31 +1972,7 @@ export default function BarberPanel() {
           )}
         </section>
 
-        <section className="order-3 mt-8 border-t border-white/10 pt-6">
-          {renderAccordionHeader("future", "Próximas citas")}
-          {openSections.future && (
-            <div className="mt-4 space-y-4">
-
-          {isLoading ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
-              Cargando citas...
-            </p>
-          ) : futureAppointments.length === 0 ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
-              No hay próximas citas reservadas.
-            </p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {futureAppointments.map((appointment) =>
-                renderAppointment(appointment)
-              )}
-            </div>
-          )}
-            </div>
-          )}
-        </section>
-
-        <section className="order-4 mt-8 border-t border-white/10 pt-6">
+        <section className="order-2 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("reminders", "Recordatorios de mañana")}
           {openSections.reminders && (
             <div className="mt-4 space-y-4">
@@ -1993,7 +2042,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-9 mt-8 border-t border-white/10 pt-6">
+        <section className="order-7 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("settings", "Configuración del negocio")}
           {openSections.settings && (
             <div className="mt-4 space-y-4">
@@ -2284,7 +2333,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-6 mt-8 border-t border-white/10 pt-6">
+        <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("services", "Servicios y precios")}
           {openSections.services && (
             <div className="mt-4 space-y-4">
@@ -2471,7 +2520,7 @@ export default function BarberPanel() {
           </p>
         )}
 
-        <section className="order-8 mt-8 border-t border-white/10 pt-6">
+        <section className="order-6 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("blocks", "Bloquear horario")}
           {openSections.blocks && (
             <div className="mt-4 space-y-4">
@@ -2633,8 +2682,8 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-7 mt-8 border-t border-white/10 pt-6">
-          {renderAccordionHeader("schedule", "Horario de trabajo")}
+        <section className="order-5 mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("schedule", "Horarios de trabajo")}
           {openSections.schedule && (
             <div className="mt-4 space-y-4">
 
