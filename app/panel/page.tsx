@@ -93,6 +93,7 @@ type BusinessSettings = {
 
 type PanelSectionKey =
   | "today"
+  | "dayAgenda"
   | "future"
   | "manual"
   | "reminders"
@@ -371,8 +372,12 @@ export default function BarberPanel() {
   const [manualMessageType, setManualMessageType] = useState<"success" | "error">(
     "success"
   );
+  const [agendaDate, setAgendaDate] = useState(() =>
+    formatDateForSupabase(new Date())
+  );
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     today: true,
+    dayAgenda: true,
     future: true,
     manual: true,
     reminders: false,
@@ -397,6 +402,23 @@ export default function BarberPanel() {
   const futureAppointments = appointments.filter(
     (appointment) => appointment.appointment_date > today
   );
+  const agendaSelectedDate = new Date(`${agendaDate}T00:00:00`);
+  const agendaWorkingHour = getWorkingHoursForDate(
+    agendaSelectedDate,
+    workingHours
+  );
+  const agendaSlotMinutes = Number(agendaWorkingHour?.slot_minutes) || 30;
+  const agendaSlots = getAvailableHours(agendaWorkingHour);
+  const agendaAppointments = appointments.filter(
+    (appointment) => appointment.appointment_date === agendaDate
+  );
+  const agendaBlockedTimes = blockedTimes.filter(
+    (blockedTime) => blockedTime.block_date === agendaDate
+  );
+  const isAgendaFullDayBlocked = agendaBlockedTimes.some(
+    (blockedTime) => blockedTime.is_full_day
+  );
+  const isAgendaClosed = !agendaWorkingHour || !agendaWorkingHour.is_working;
 
   useEffect(() => {
     checkSession();
@@ -1291,6 +1313,62 @@ export default function BarberPanel() {
     }));
   }
 
+  function getAgendaSlotInfo(hour: string) {
+    const slotStart = timeToMinutes(hour);
+    const slotEnd = slotStart + agendaSlotMinutes;
+
+    const startingAppointment = agendaAppointments.find(
+      (appointment) => timeToMinutes(appointment.appointment_time) === slotStart
+    );
+
+    if (startingAppointment) {
+      return {
+        type: "appointment-start" as const,
+        appointment: startingAppointment,
+        blockedTime: null
+      };
+    }
+
+    const continuingAppointment = agendaAppointments.find((appointment) => {
+      const appointmentStart = timeToMinutes(appointment.appointment_time);
+      const appointmentEnd =
+        appointmentStart + (Number(appointment.duration_minutes) || 30);
+
+      return slotStart > appointmentStart && slotStart < appointmentEnd;
+    });
+
+    if (continuingAppointment) {
+      return {
+        type: "appointment-continuation" as const,
+        appointment: continuingAppointment,
+        blockedTime: null
+      };
+    }
+
+    const blockedTime = agendaBlockedTimes.find((block) => {
+      if (block.is_full_day || !block.start_time || !block.end_time) {
+        return false;
+      }
+
+      return slotStart < timeToMinutes(block.end_time) &&
+        slotEnd > timeToMinutes(block.start_time);
+    });
+
+    if (blockedTime) {
+      return {
+        type: "blocked" as const,
+        appointment: null,
+        blockedTime
+      };
+    }
+
+    return {
+      type: "free" as const,
+      appointment: null,
+      blockedTime: null
+    };
+  }
+
   function renderAccordionHeader(section: PanelSectionKey, title: string) {
     const isOpen = openSections[section];
 
@@ -1526,7 +1604,7 @@ export default function BarberPanel() {
           </div>
         </section>
 
-        <section className="order-4 mt-8 border-t border-white/10 pt-6">
+        <section className="order-5 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
             <div className="mt-4 space-y-4">
@@ -1712,6 +1790,116 @@ export default function BarberPanel() {
         </section>
 
         <section className="order-2 mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("dayAgenda", "Agenda del día")}
+          {openSections.dayAgenda && (
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-xs font-semibold text-white/60">
+                  Fecha
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                  onChange={(event) => setAgendaDate(event.target.value)}
+                  type="date"
+                  value={agendaDate}
+                />
+              </label>
+
+              {isLoading || isLoadingSchedule || isLoadingBlockedTimes ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  Cargando agenda...
+                </p>
+              ) : isAgendaFullDayBlocked ? (
+                <p className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+                  Este día está bloqueado completo.
+                </p>
+              ) : isAgendaClosed ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  Este día no hay horario de trabajo.
+                </p>
+              ) : agendaSlots.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  No hay tramos horarios configurados para este día.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {agendaSlots.map((hour) => {
+                    const slotInfo = getAgendaSlotInfo(hour);
+                    const appointment = slotInfo.appointment;
+                    const blockedTime = slotInfo.blockedTime;
+
+                    return (
+                      <article
+                        className={
+                          slotInfo.type === "appointment-start"
+                            ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/50 bg-barber-gold/10 p-3"
+                            : slotInfo.type === "appointment-continuation"
+                              ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/[0.06] p-3"
+                              : slotInfo.type === "blocked"
+                                ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-red-400/35 bg-red-400/10 p-3"
+                                : "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-white/10 bg-black/20 p-3"
+                        }
+                        key={hour}
+                      >
+                        <p className="text-sm font-bold text-white/70">
+                          {formatAppointmentTime(hour)}
+                        </p>
+
+                        {slotInfo.type === "appointment-start" && appointment && (
+                          <div>
+                            <p className="font-bold text-white">
+                              {formatAppointmentTime(appointment.appointment_time)} -{" "}
+                              {appointment.customer_name}
+                            </p>
+                            <p className="mt-1 text-sm text-white/72">
+                              {appointment.service} · {appointment.duration_minutes} min
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-white/55">
+                              Tel: {appointment.customer_phone}
+                            </p>
+                          </div>
+                        )}
+
+                        {slotInfo.type === "appointment-continuation" &&
+                          appointment && (
+                            <div>
+                              <p className="text-sm font-bold text-barber-gold">
+                                Ocupado por {appointment.customer_name}
+                              </p>
+                              <p className="mt-1 text-xs text-white/50">
+                                {appointment.service}
+                              </p>
+                            </div>
+                          )}
+
+                        {slotInfo.type === "blocked" && blockedTime && (
+                          <div>
+                            <p className="text-sm font-bold text-red-100">
+                              Bloqueado
+                            </p>
+                            {blockedTime.reason && (
+                              <p className="mt-1 text-xs text-red-100/70">
+                                {blockedTime.reason}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {slotInfo.type === "free" && (
+                          <p className="text-sm font-semibold text-white/45">
+                            Libre
+                          </p>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="order-3 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("future", "Próximas citas")}
           {openSections.future && (
             <div className="mt-4 space-y-4">
@@ -1735,7 +1923,7 @@ export default function BarberPanel() {
           )}
         </section>
 
-        <section className="order-3 mt-8 border-t border-white/10 pt-6">
+        <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("reminders", "Recordatorios de mañana")}
           {openSections.reminders && (
             <div className="mt-4 space-y-4">
@@ -1805,7 +1993,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-8 mt-8 border-t border-white/10 pt-6">
+        <section className="order-9 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("settings", "Configuración del negocio")}
           {openSections.settings && (
             <div className="mt-4 space-y-4">
@@ -2096,7 +2284,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-5 mt-8 border-t border-white/10 pt-6">
+        <section className="order-6 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("services", "Servicios y precios")}
           {openSections.services && (
             <div className="mt-4 space-y-4">
@@ -2283,7 +2471,7 @@ export default function BarberPanel() {
           </p>
         )}
 
-        <section className="order-7 mt-8 border-t border-white/10 pt-6">
+        <section className="order-8 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("blocks", "Bloquear horario")}
           {openSections.blocks && (
             <div className="mt-4 space-y-4">
@@ -2445,7 +2633,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-6 mt-8 border-t border-white/10 pt-6">
+        <section className="order-7 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("schedule", "Horario de trabajo")}
           {openSections.schedule && (
             <div className="mt-4 space-y-4">
