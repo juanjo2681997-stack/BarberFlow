@@ -541,7 +541,10 @@ export default function BarberPanel() {
   );
   const agendaSlotMinutes = Number(agendaWorkingHour?.slot_minutes) || 30;
   const agendaSlots = getAvailableHours(agendaWorkingHour);
-  const agendaAppointments = appointments.filter(
+  const activeAppointments = appointments.filter(
+    (appointment) => appointment.appointment_status !== "cancelled"
+  );
+  const agendaAppointments = activeAppointments.filter(
     (appointment) => appointment.appointment_date === agendaDate
   );
   const agendaBlockedTimes = blockedTimes.filter(
