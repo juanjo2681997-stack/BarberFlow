@@ -1555,6 +1555,16 @@ export default function BarberPanel() {
     id: string,
     nextStatus: AppointmentStatus
   ) {
+    if (nextStatus === "cancelled") {
+      const confirmed = window.confirm(
+        "¿Seguro que quieres cancelar esta cita? El hueco quedará libre para nuevas reservas."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from("appointments")
       .update({
@@ -1571,7 +1581,11 @@ export default function BarberPanel() {
     }
 
     setAgendaMessageType("success");
-    setAgendaMessage("Estado de cita actualizado.");
+    setAgendaMessage(
+      nextStatus === "cancelled"
+        ? "Cita cancelada correctamente."
+        : "Estado de cita actualizado."
+    );
     await loadAppointments();
   }
 
