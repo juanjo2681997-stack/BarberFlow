@@ -16,7 +16,11 @@ type Appointment = {
   reminder_sent_at: string | null;
   reminder_status: string | null;
   reminder_error: string | null;
+  appointment_status: AppointmentStatus;
+  status_updated_at: string | null;
 };
+
+type AppointmentStatus = "pending" | "completed" | "cancelled" | "no_show";
 
 type ExistingAppointment = {
   appointment_time: string;
@@ -136,6 +140,23 @@ const reminderStatusLabels: Record<string, string> = {
   failed: "Fallido"
 };
 
+const appointmentStatusLabels: Record<AppointmentStatus, string> = {
+  pending: "Pendiente",
+  completed: "Realizada",
+  cancelled: "Cancelada",
+  no_show: "No asistió"
+};
+
+const appointmentStatusActions: Array<{
+  status: AppointmentStatus;
+  label: string;
+}> = [
+  { status: "completed", label: "Realizada" },
+  { status: "cancelled", label: "Cancelada" },
+  { status: "no_show", label: "No asistió" },
+  { status: "pending", label: "Pendiente" }
+];
+
 const initialManualAppointmentForm: ManualAppointmentForm = {
   customer_name: "",
   customer_phone: "",
@@ -230,6 +251,20 @@ function normalizeBookingLimitMode(
   }
 
   return "days";
+}
+
+function normalizeAppointmentStatus(
+  status: string | null | undefined
+): AppointmentStatus {
+  if (
+    status === "completed" ||
+    status === "cancelled" ||
+    status === "no_show"
+  ) {
+    return status;
+  }
+
+  return "pending";
 }
 
 function timeToMinutes(time: string) {
@@ -488,7 +523,9 @@ export default function BarberPanel() {
   const today = formatDateForSupabase(todayDate);
   const tomorrow = formatDateForSupabase(tomorrowDate);
   const tomorrowAppointments = appointments.filter(
-    (appointment) => appointment.appointment_date === tomorrow
+    (appointment) =>
+      appointment.appointment_date === tomorrow &&
+      appointment.appointment_status !== "cancelled"
   );
   const agendaCalendarDays = getAgendaCalendarDays(
     agendaCalendarMonth,
@@ -893,7 +930,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error"
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
       )
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
@@ -905,7 +942,14 @@ export default function BarberPanel() {
       return;
     }
 
-    setAppointments((data ?? []) as Appointment[]);
+    setAppointments(
+      ((data ?? []) as Appointment[]).map((appointment) => ({
+        ...appointment,
+        appointment_status: normalizeAppointmentStatus(
+          appointment.appointment_status
+        )
+      }))
+    );
   }
 
   async function loadBlockedTimes() {
@@ -1198,6 +1242,7 @@ export default function BarberPanel() {
       customer_user_id: null,
       barber_name: mainBarber,
       duration_minutes: selectedService.duration_minutes,
+      appointment_status: "pending",
       reminder_status: "pending"
     });
 
@@ -1252,7 +1297,8 @@ export default function BarberPanel() {
       .filter(
         (appointment) =>
           appointment.appointment_date === dateValue &&
-          appointment.id !== excludedAppointmentId
+          appointment.id !== excludedAppointmentId &&
+          appointment.appointment_status !== "cancelled"
       )
       .map((appointment) => ({
         appointment_time: appointment.appointment_time,
@@ -1500,6 +1546,62 @@ export default function BarberPanel() {
       "_blank",
       "noopener,noreferrer"
     );
+  }
+
+  async function updateAppointmentStatus(
+    id: string,
+    nextStatus: AppointmentStatus
+  ) {
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        appointment_status: nextStatus,
+        status_updated_at: new Date().toISOString()
+      })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error updating appointment status:", error);
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo actualizar el estado de la cita.");
+      return;
+    }
+
+    setAgendaMessageType("success");
+    setAgendaMessage("Estado de cita actualizado.");
+    await loadAppointments();
+  }
+
+  function getAgendaAppointmentClass(status: AppointmentStatus) {
+    if (status === "completed") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-green-400/45 bg-green-400/10 p-3";
+    }
+
+    if (status === "cancelled") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 opacity-60";
+    }
+
+    if (status === "no_show") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-yellow-400/45 bg-yellow-400/10 p-3";
+    }
+
+    return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/50 bg-barber-gold/10 p-3";
+  }
+
+  function getAgendaContinuationClass(status: AppointmentStatus) {
+    if (status === "completed") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-green-400/25 bg-green-400/[0.06] p-3";
+    }
+
+    if (status === "cancelled") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3 opacity-50";
+    }
+
+    if (status === "no_show") {
+      return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-yellow-400/25 bg-yellow-400/[0.06] p-3";
+    }
+
+    return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/[0.06] p-3";
   }
 
   function updateService(
@@ -2442,9 +2544,13 @@ export default function BarberPanel() {
                       <article
                         className={
                           slotInfo.type === "appointment-start"
-                            ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/50 bg-barber-gold/10 p-3"
+                            ? getAgendaAppointmentClass(
+                                appointment?.appointment_status ?? "pending"
+                              )
                             : slotInfo.type === "appointment-continuation"
-                              ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/[0.06] p-3"
+                              ? getAgendaContinuationClass(
+                                  appointment?.appointment_status ?? "pending"
+                                )
                               : slotInfo.type === "blocked"
                                 ? "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-red-400/35 bg-red-400/10 p-3"
                                 : "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-white/10 bg-black/20 p-3"
@@ -2466,6 +2572,16 @@ export default function BarberPanel() {
                             </p>
                             <p className="mt-1 text-xs font-semibold text-white/55">
                               Tel: {appointment.customer_phone}
+                            </p>
+                            <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-white/50">
+                              Estado:{" "}
+                              <span className="text-barber-gold">
+                                {
+                                  appointmentStatusLabels[
+                                    appointment.appointment_status
+                                  ]
+                                }
+                              </span>
                             </p>
                             <div className="mt-3 grid grid-cols-3 gap-2">
                               <button
@@ -2490,6 +2606,33 @@ export default function BarberPanel() {
                                 WhatsApp
                               </button>
                             </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              {appointmentStatusActions.map((action) => {
+                                const isCurrentStatus =
+                                  appointment.appointment_status === action.status;
+
+                                return (
+                                  <button
+                                    className={
+                                      isCurrentStatus
+                                        ? "rounded-full border border-white/25 bg-white/15 px-3 py-2 text-xs font-bold text-white"
+                                        : "rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/60 transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                                    }
+                                    disabled={isCurrentStatus}
+                                    key={action.status}
+                                    onClick={() =>
+                                      updateAppointmentStatus(
+                                        appointment.id,
+                                        action.status
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {action.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
 
@@ -2497,7 +2640,9 @@ export default function BarberPanel() {
                           appointment && (
                             <div>
                               <p className="text-sm font-bold text-barber-gold">
-                                Ocupado por {appointment.customer_name}
+                                {appointment.appointment_status === "cancelled"
+                                  ? `Cancelada: ${appointment.customer_name}`
+                                  : `Ocupado por ${appointment.customer_name}`}
                               </p>
                               <p className="mt-1 text-xs text-white/50">
                                 {appointment.service}
