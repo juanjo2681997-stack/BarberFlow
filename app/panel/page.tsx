@@ -486,6 +486,9 @@ export default function BarberPanel() {
   const [isLoadingBlockedTimes, setIsLoadingBlockedTimes] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [historyMessage, setHistoryMessage] = useState("");
+  const [historyMessageType, setHistoryMessageType] = useState<"success" | "error">(
+    "success"
+  );
   const [historyStatusFilter, setHistoryStatusFilter] =
     useState<HistoryStatusFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState("");
@@ -697,6 +700,7 @@ export default function BarberPanel() {
     setIsLoadingManualHours(false);
     setIsLoadingHistory(false);
     setHistoryMessage("");
+    setHistoryMessageType("success");
     setHistoryStatusFilter("all");
     setHistoryDateFrom("");
     setHistoryDateTo("");
@@ -1024,6 +1028,7 @@ export default function BarberPanel() {
   async function loadAppointmentHistory() {
     setIsLoadingHistory(true);
     setHistoryMessage("");
+    setHistoryMessageType("success");
 
     const { data, error } = await supabase
       .from("appointments")
@@ -1037,6 +1042,7 @@ export default function BarberPanel() {
 
     if (error) {
       console.error("Error loading appointment history:", error);
+      setHistoryMessageType("error");
       setHistoryMessage("No se pudo cargar el historial de citas.");
       return;
     }
@@ -1049,6 +1055,52 @@ export default function BarberPanel() {
         )
       }))
     );
+  }
+
+  async function deleteAppointmentHistory() {
+    if (historyBaseAppointments.length === 0) {
+      setHistoryMessageType("error");
+      setHistoryMessage("No hay citas en el historial para eliminar.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "¿Seguro que quieres eliminar todo el historial de citas? Esta acción no se puede deshacer."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const { error: statusError } = await supabase
+      .from("appointments")
+      .delete()
+      .in("appointment_status", ["completed", "cancelled", "no_show"]);
+
+    if (statusError) {
+      console.error("Error deleting appointment history:", statusError);
+      setHistoryMessageType("error");
+      setHistoryMessage("No se pudo eliminar el historial.");
+      return;
+    }
+
+    const { error: pendingError } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("appointment_status", "pending")
+      .lt("appointment_date", today);
+
+    if (pendingError) {
+      console.error("Error deleting appointment history:", pendingError);
+      setHistoryMessageType("error");
+      setHistoryMessage("No se pudo eliminar el historial.");
+      return;
+    }
+
+    await loadAppointments();
+    await loadAppointmentHistory();
+    setHistoryMessageType("success");
+    setHistoryMessage("Historial eliminado correctamente.");
   }
 
   async function loadBlockedTimes() {
@@ -1741,6 +1793,7 @@ export default function BarberPanel() {
     const phone = normalizeWhatsAppPhone(appointment.customer_phone);
 
     if (!phone) {
+      setHistoryMessageType("error");
       setHistoryMessage("Esta cita no tiene teléfono.");
       return;
     }
@@ -2901,10 +2954,23 @@ export default function BarberPanel() {
                     />
                   </label>
                 </div>
+                <button
+                  className="mt-4 w-full rounded-2xl border border-red-400/45 bg-red-400/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/20 active:scale-[0.98]"
+                  onClick={deleteAppointmentHistory}
+                  type="button"
+                >
+                  Eliminar historial
+                </button>
               </div>
 
               {historyMessage && (
-                <p className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+                <p
+                  className={
+                    historyMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
                   {historyMessage}
                 </p>
               )}
