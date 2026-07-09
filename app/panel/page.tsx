@@ -22,6 +22,13 @@ type Appointment = {
 
 type AppointmentStatus = "pending" | "completed" | "cancelled" | "no_show";
 
+type HistoryStatusFilter =
+  | "all"
+  | "completed"
+  | "cancelled"
+  | "no_show"
+  | "old_pending";
+
 type ExistingAppointment = {
   appointment_time: string;
   duration_minutes: number | null;
@@ -107,6 +114,7 @@ type BusinessSettings = {
 
 type PanelSectionKey =
   | "dayAgenda"
+  | "history"
   | "manual"
   | "reminders"
   | "settings"
@@ -223,6 +231,18 @@ function createAppointmentWhatsAppLink(
   const message = `Hola ${appointment.customer_name}, te recordamos tu cita en ${businessName} el día ${appointment.appointment_date} a las ${formatAppointmentTime(
     appointment.appointment_time
   )} para ${appointment.service}. ¡Gracias!`;
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
+function createHistoryWhatsAppLink(
+  appointment: Appointment,
+  businessName: string
+) {
+  const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+  const message = `Hola ${appointment.customer_name}, te escribimos desde ${businessName} sobre tu cita del día ${appointment.appointment_date} a las ${formatAppointmentTime(
+    appointment.appointment_time
+  )} para ${appointment.service}.`;
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
@@ -442,6 +462,7 @@ function blockOverlaps(
 
 export default function BarberPanel() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([]);
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [blockedTimes, setBlockedTimes] = useState<BlockedTime[]>([]);
@@ -459,10 +480,17 @@ export default function BarberPanel() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [isLoadingBlockedTimes, setIsLoadingBlockedTimes] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [historyMessage, setHistoryMessage] = useState("");
+  const [historyStatusFilter, setHistoryStatusFilter] =
+    useState<HistoryStatusFilter>("all");
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
   const [scheduleMessage, setScheduleMessage] = useState("");
   const [serviceMessage, setServiceMessage] = useState("");
   const [blockMessage, setBlockMessage] = useState("");
@@ -508,6 +536,7 @@ export default function BarberPanel() {
   const [isLoadingEditHours, setIsLoadingEditHours] = useState(false);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
+    history: false,
     manual: true,
     reminders: false,
     settings: false,
@@ -554,6 +583,35 @@ export default function BarberPanel() {
     (blockedTime) => blockedTime.is_full_day
   );
   const isAgendaClosed = !agendaWorkingHour || !agendaWorkingHour.is_working;
+  const historyBaseAppointments = historyAppointments.filter(
+    (appointment) =>
+      appointment.appointment_status === "completed" ||
+      appointment.appointment_status === "cancelled" ||
+      appointment.appointment_status === "no_show" ||
+      (appointment.appointment_status === "pending" &&
+        appointment.appointment_date < today)
+  );
+  const filteredHistoryAppointments = historyBaseAppointments.filter(
+    (appointment) => {
+      const matchesStatus =
+        historyStatusFilter === "all" ||
+        appointment.appointment_status === historyStatusFilter ||
+        (historyStatusFilter === "old_pending" &&
+          appointment.appointment_status === "pending" &&
+          appointment.appointment_date < today);
+      const matchesDateFrom =
+        historyDateFrom === "" || appointment.appointment_date >= historyDateFrom;
+      const matchesDateTo =
+        historyDateTo === "" || appointment.appointment_date <= historyDateTo;
+      const search = historySearch.trim().toLowerCase();
+      const matchesSearch =
+        search === "" ||
+        appointment.customer_name.toLowerCase().includes(search) ||
+        appointment.customer_phone.toLowerCase().includes(search);
+
+      return matchesStatus && matchesDateFrom && matchesDateTo && matchesSearch;
+    }
+  );
 
   useEffect(() => {
     checkSession();
@@ -618,6 +676,7 @@ export default function BarberPanel() {
 
   function loadPanelData() {
     loadAppointments();
+    loadAppointmentHistory();
     loadBusinessSettings();
     loadWorkingHours();
     loadServices();
@@ -627,6 +686,7 @@ export default function BarberPanel() {
   function clearPanelData(keepAccessDenied = false) {
     setIsAuthenticated(false);
     setAppointments([]);
+    setHistoryAppointments([]);
     setWorkingHours([]);
     setServices([]);
     setBlockedTimes([]);
@@ -635,6 +695,12 @@ export default function BarberPanel() {
     setManualAppointment(initialManualAppointmentForm);
     setManualAvailableHours([]);
     setIsLoadingManualHours(false);
+    setIsLoadingHistory(false);
+    setHistoryMessage("");
+    setHistoryStatusFilter("all");
+    setHistoryDateFrom("");
+    setHistoryDateTo("");
+    setHistorySearch("");
     setAgendaMessage("");
     setAgendaMessageType("success");
     setEditingAppointment(null);
@@ -955,6 +1021,36 @@ export default function BarberPanel() {
     );
   }
 
+  async function loadAppointmentHistory() {
+    setIsLoadingHistory(true);
+    setHistoryMessage("");
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
+      )
+      .order("appointment_date", { ascending: false })
+      .order("appointment_time", { ascending: false });
+
+    setIsLoadingHistory(false);
+
+    if (error) {
+      console.error("Error loading appointment history:", error);
+      setHistoryMessage("No se pudo cargar el historial de citas.");
+      return;
+    }
+
+    setHistoryAppointments(
+      ((data ?? []) as Appointment[]).map((appointment) => ({
+        ...appointment,
+        appointment_status: normalizeAppointmentStatus(
+          appointment.appointment_status
+        )
+      }))
+    );
+  }
+
   async function loadBlockedTimes() {
     setIsLoadingBlockedTimes(true);
 
@@ -1261,6 +1357,7 @@ export default function BarberPanel() {
     setManualMessageType("success");
     setManualMessage("Cita creada correctamente.");
     await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   function calculateEditAvailableHoursFor(
@@ -1510,6 +1607,7 @@ export default function BarberPanel() {
     setAgendaMessageType("success");
     setAgendaMessage("Cita modificada correctamente.");
     await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   async function deleteAgendaAppointment(id: string) {
@@ -1531,6 +1629,7 @@ export default function BarberPanel() {
     setAgendaMessageType("success");
     setAgendaMessage("Cita eliminada correctamente.");
     await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   function openAppointmentWhatsApp(appointment: Appointment) {
@@ -1587,6 +1686,7 @@ export default function BarberPanel() {
         : "Estado de cita actualizado."
     );
     await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   function getAgendaAppointmentClass(status: AppointmentStatus) {
@@ -1619,6 +1719,39 @@ export default function BarberPanel() {
     }
 
     return "grid grid-cols-[64px_1fr] gap-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/[0.06] p-3";
+  }
+
+  function getHistoryAppointmentClass(status: AppointmentStatus) {
+    if (status === "completed") {
+      return "rounded-2xl border border-green-400/35 bg-green-400/10 p-4";
+    }
+
+    if (status === "cancelled") {
+      return "rounded-2xl border border-white/10 bg-white/[0.03] p-4 opacity-65";
+    }
+
+    if (status === "no_show") {
+      return "rounded-2xl border border-yellow-400/35 bg-yellow-400/10 p-4";
+    }
+
+    return "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4";
+  }
+
+  function openHistoryWhatsApp(appointment: Appointment) {
+    const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+
+    if (!phone) {
+      setHistoryMessage("Esta cita no tiene teléfono.");
+      return;
+    }
+
+    const businessName =
+      businessSettings.business_name || defaultBusinessSettings.business_name;
+    window.open(
+      createHistoryWhatsAppLink(appointment, businessName),
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   function updateService(
@@ -2129,7 +2262,7 @@ export default function BarberPanel() {
           </div>
         </header>
 
-        <section className="order-3 mt-8 border-t border-white/10 pt-6">
+        <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
             <div className="mt-4 space-y-4">
@@ -2695,6 +2828,160 @@ export default function BarberPanel() {
         </section>
 
         <section className="order-2 mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("history", "Historial de citas")}
+          {openSections.history && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Estado
+                    </span>
+                    <select
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      onChange={(event) =>
+                        setHistoryStatusFilter(
+                          event.target.value as HistoryStatusFilter
+                        )
+                      }
+                      value={historyStatusFilter}
+                    >
+                      <option className="bg-barber-gray" value="all">
+                        Todas
+                      </option>
+                      <option className="bg-barber-gray" value="completed">
+                        Realizadas
+                      </option>
+                      <option className="bg-barber-gray" value="cancelled">
+                        Canceladas
+                      </option>
+                      <option className="bg-barber-gray" value="no_show">
+                        No asistió
+                      </option>
+                      <option className="bg-barber-gray" value="old_pending">
+                        Pendientes antiguas
+                      </option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Buscar por cliente
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) => setHistorySearch(event.target.value)}
+                      placeholder="Nombre o teléfono"
+                      type="search"
+                      value={historySearch}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Fecha desde
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      onChange={(event) => setHistoryDateFrom(event.target.value)}
+                      type="date"
+                      value={historyDateFrom}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Fecha hasta
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      onChange={(event) => setHistoryDateTo(event.target.value)}
+                      type="date"
+                      value={historyDateTo}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {historyMessage && (
+                <p className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+                  {historyMessage}
+                </p>
+              )}
+
+              {isLoadingHistory ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  Cargando historial...
+                </p>
+              ) : filteredHistoryAppointments.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  No hay citas en el historial con estos filtros.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {filteredHistoryAppointments.map((appointment) => (
+                    <article
+                      className={getHistoryAppointmentClass(
+                        appointment.appointment_status
+                      )}
+                      key={appointment.id}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-base font-bold text-white">
+                            {appointment.customer_name}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-barber-gold">
+                            {appointmentStatusLabels[appointment.appointment_status]}
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-full border border-green-400/45 px-3 py-2 text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                          onClick={() => openHistoryWhatsApp(appointment)}
+                          type="button"
+                        >
+                          WhatsApp
+                        </button>
+                      </div>
+
+                      <div className="mt-4 space-y-2 text-sm leading-6 text-white/70">
+                        <p>
+                          <span className="font-semibold text-white">Teléfono:</span>{" "}
+                          {appointment.customer_phone}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white">Servicio:</span>{" "}
+                          {appointment.service}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white">Fecha:</span>{" "}
+                          {appointment.appointment_date} a las{" "}
+                          {formatAppointmentTime(appointment.appointment_time)}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white">Duración:</span>{" "}
+                          {appointment.duration_minutes} min
+                        </p>
+                        {appointment.status_updated_at && (
+                          <p>
+                            <span className="font-semibold text-white">
+                              Estado actualizado:
+                            </span>{" "}
+                            {new Date(
+                              appointment.status_updated_at
+                            ).toLocaleString("es-ES")}
+                          </p>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="order-3 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("reminders", "Recordatorios de mañana")}
           {openSections.reminders && (
             <div className="mt-4 space-y-4">
@@ -2764,7 +3051,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-7 mt-8 border-t border-white/10 pt-6">
+        <section className="order-8 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("settings", "Configuración del negocio")}
           {openSections.settings && (
             <div className="mt-4 space-y-4">
@@ -3055,7 +3342,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-4 mt-8 border-t border-white/10 pt-6">
+        <section className="order-5 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("services", "Servicios y precios")}
           {openSections.services && (
             <div className="mt-4 space-y-4">
@@ -3242,7 +3529,7 @@ export default function BarberPanel() {
           </p>
         )}
 
-        <section className="order-6 mt-8 border-t border-white/10 pt-6">
+        <section className="order-7 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("blocks", "Bloquear horario")}
           {openSections.blocks && (
             <div className="mt-4 space-y-4">
@@ -3404,7 +3691,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
-        <section className="order-5 mt-8 border-t border-white/10 pt-6">
+        <section className="order-6 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("schedule", "Horarios de trabajo")}
           {openSections.schedule && (
             <div className="mt-4 space-y-4">
