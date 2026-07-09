@@ -2297,7 +2297,7 @@ export default function BarberPanel() {
           </p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <h1 className="text-3xl font-bold text-white">Panel del barbero</h1>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex sm:justify-end">
               <button
                 className="rounded-2xl border border-red-400/30 px-4 py-3 text-xs font-semibold text-red-100 transition hover:bg-red-400/10"
                 onClick={handleLogout}
@@ -2305,12 +2305,6 @@ export default function BarberPanel() {
               >
                 Cerrar sesión
               </button>
-              <Link
-                className="rounded-2xl border border-white/10 px-4 py-3 text-center text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
-                href="/"
-              >
-                Volver a la app
-              </Link>
             </div>
           </div>
         </header>
