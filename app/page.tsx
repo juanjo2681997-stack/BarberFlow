@@ -126,6 +126,7 @@ type CustomerLoginForm = {
   password: string;
 };
 
+type AccessMode = "initial" | "customer" | "barber";
 
 const mainBarber = "Pablo";
 
@@ -639,8 +640,14 @@ export default function Home() {
   const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
   const [customerAppointmentsMessage, setCustomerAppointmentsMessage] =
     useState<FormMessage | null>(null);
+  const [accessMode, setAccessMode] = useState<AccessMode>("initial");
+  const [barberLoginForm, setBarberLoginForm] = useState<CustomerLoginForm>(
+    initialCustomerLoginForm
+  );
+  const [barberMessage, setBarberMessage] = useState<FormMessage | null>(null);
   const [isCheckingCustomerSession, setIsCheckingCustomerSession] = useState(true);
   const [isCustomerAuthLoading, setIsCustomerAuthLoading] = useState(false);
+  const [isBarberAuthLoading, setIsBarberAuthLoading] = useState(false);
   const [isLoadingCustomerProfile, setIsLoadingCustomerProfile] = useState(false);
   const [isSavingCustomerProfile, setIsSavingCustomerProfile] = useState(false);
   const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
@@ -746,16 +753,12 @@ export default function Home() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const user = session?.user ?? null;
 
       if (user) {
-        setCustomerUser(user);
+        await handleAuthenticatedUser(user);
         setIsCheckingCustomerSession(false);
-        loadBusinessSettings();
-        checkCustomerAdminAccess();
-        loadCustomerProfile(user.id);
-        loadCustomerAppointments(user.id);
         return;
       }
 
@@ -1022,14 +1025,30 @@ export default function Home() {
       return;
     }
 
+    await handleAuthenticatedUser(user);
+    setIsCheckingCustomerSession(false);
+  }
+
+  async function handleAuthenticatedUser(user: User) {
     setCustomerUser(user);
+    const isAdmin = await checkCustomerAdminAccess();
+
+    if (isAdmin) {
+      setCustomerProfile({
+        user_id: "",
+        full_name: "",
+        phone: ""
+      });
+      setCustomerAppointments([]);
+      setCustomerAppointmentsMessage(null);
+      return;
+    }
+
     await Promise.all([
       loadBusinessSettings(),
-      checkCustomerAdminAccess(),
       loadCustomerProfile(user.id),
       loadCustomerAppointments(user.id)
     ]);
-    setIsCheckingCustomerSession(false);
   }
 
   async function checkCustomerAdminAccess() {
@@ -1038,10 +1057,13 @@ export default function Home() {
     if (error) {
       console.error("Error checking admin permissions:", error);
       setIsCustomerAdmin(false);
-      return;
+      return false;
     }
 
-    setIsCustomerAdmin(data === true);
+    const isAdmin = data === true;
+    setIsCustomerAdmin(isAdmin);
+
+    return isAdmin;
   }
 
   function updateCustomerAuthField(field: keyof CustomerAuthForm, value: string) {
@@ -1058,6 +1080,14 @@ export default function Home() {
       [field]: value
     }));
     setCustomerMessage(null);
+  }
+
+  function updateBarberLoginField(field: keyof CustomerLoginForm, value: string) {
+    setBarberLoginForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setBarberMessage(null);
   }
 
   function updateCustomerProfile(field: keyof CustomerProfile, value: string) {
@@ -1173,9 +1203,63 @@ export default function Home() {
       return;
     }
 
+    const isAdmin = await checkCustomerAdminAccess();
+
     setCustomerLoginForm(initialCustomerLoginForm);
     setCustomerMessage({
-      text: "Sesión iniciada.",
+      text: isAdmin
+        ? "Esta cuenta pertenece a un barbero. Accede desde el Área barbero."
+        : "Sesión iniciada.",
+      type: isAdmin ? "error" : "success"
+    });
+  }
+
+  async function loginBarber() {
+    if (
+      barberLoginForm.email.trim() === "" ||
+      barberLoginForm.password.trim() === ""
+    ) {
+      setBarberMessage({
+        text: "Rellena email y contraseña para iniciar sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsBarberAuthLoading(true);
+    setBarberMessage(null);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: barberLoginForm.email.trim(),
+      password: barberLoginForm.password
+    });
+
+    if (error) {
+      setIsBarberAuthLoading(false);
+      setBarberMessage({
+        text: "No se pudo iniciar sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    const isAdmin = await checkCustomerAdminAccess();
+
+    setIsBarberAuthLoading(false);
+
+    if (!isAdmin) {
+      await supabase.auth.signOut();
+      clearCustomerData();
+      setBarberMessage({
+        text: "Esta cuenta no tiene permiso para acceder al Área barbero.",
+        type: "error"
+      });
+      return;
+    }
+
+    setBarberLoginForm(initialCustomerLoginForm);
+    setBarberMessage({
+      text: "Sesión iniciada como barbero.",
       type: "success"
     });
   }
@@ -1915,10 +1999,146 @@ export default function Home() {
     );
   }
 
+  if (!isCustomerLoggedIn && accessMode === "initial") {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            {businessSettings.business_name}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-white/65">
+            Elige cómo quieres acceder.
+          </p>
+
+          <div className="mt-8 grid grid-cols-1 gap-4">
+            <button
+              className="rounded-2xl border border-barber-gold/45 bg-barber-gold/10 p-5 text-left transition hover:bg-barber-gold/15 active:scale-[0.98]"
+              onClick={() => {
+                setAccessMode("customer");
+                setCustomerMessage(null);
+              }}
+              type="button"
+            >
+              <span className="block text-xl font-bold text-white">Soy cliente</span>
+              <span className="mt-2 block text-sm leading-6 text-white/65">
+                Reserva tu cita, consulta tus próximas reservas y recibe recordatorios.
+              </span>
+            </button>
+
+            <button
+              className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-barber-gold/50 hover:bg-white/[0.07] active:scale-[0.98]"
+              onClick={() => {
+                setAccessMode("barber");
+                setBarberMessage(null);
+              }}
+              type="button"
+            >
+              <span className="block text-xl font-bold text-white">Soy barbero</span>
+              <span className="mt-2 block text-sm leading-6 text-white/65">
+                Accede al área de gestión de tu barbería.
+              </span>
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isCustomerLoggedIn && accessMode === "barber") {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <button
+            className="mb-5 text-xs font-semibold text-white/50 transition hover:text-barber-gold"
+            onClick={() => setAccessMode("initial")}
+            type="button"
+          >
+            Volver
+          </button>
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Área barbero
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-white/65">
+            El acceso de barbero lo crea el administrador de BarberFlow.
+          </p>
+
+          {barberMessage && (
+            <p
+              className={
+                barberMessage.type === "success"
+                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+              }
+            >
+              {barberMessage.text}
+            </p>
+          )}
+
+          <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h2 className="text-lg font-bold text-white">Iniciar sesión</h2>
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Email
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateBarberLoginField("email", event.target.value)
+                  }
+                  placeholder="barbero@email.com"
+                  type="email"
+                  value={barberLoginForm.email}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-white/70">
+                  Contraseña
+                </span>
+                <input
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                  onChange={(event) =>
+                    updateBarberLoginField("password", event.target.value)
+                  }
+                  placeholder="Contraseña"
+                  type="password"
+                  value={barberLoginForm.password}
+                />
+              </label>
+
+              <button
+                className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isBarberAuthLoading}
+                onClick={loginBarber}
+                type="button"
+              >
+                {isBarberAuthLoading ? "Entrando..." : "Iniciar sesión"}
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   if (!isCustomerLoggedIn) {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <button
+            className="mb-5 text-xs font-semibold text-white/50 transition hover:text-barber-gold"
+            onClick={() => setAccessMode("initial")}
+            type="button"
+          >
+            Volver
+          </button>
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
             BARBERFLOW
           </p>
@@ -2110,6 +2330,51 @@ export default function Home() {
               Continuar con Apple (próximamente)
             </button>
           </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (isCustomerAdmin) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Has iniciado sesión como barbero.
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-white/65">
+            Esta cuenta pertenece al Área barbero y no puede reservar como cliente.
+          </p>
+
+          {customerMessage && (
+            <p
+              className={
+                customerMessage.type === "success"
+                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+              }
+            >
+              {customerMessage.text}
+            </p>
+          )}
+
+          <Link
+            className="mt-6 block rounded-2xl bg-barber-gold px-5 py-3 text-center text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+            href="/panel"
+          >
+            Entrar al Área barbero
+          </Link>
+          <button
+            className="mt-3 rounded-2xl border border-red-400/40 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isCustomerAuthLoading}
+            onClick={logoutCustomer}
+            type="button"
+          >
+            {isCustomerAuthLoading ? "Cerrando..." : "Cerrar sesión"}
+          </button>
         </section>
       </main>
     );
