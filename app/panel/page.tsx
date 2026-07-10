@@ -112,6 +112,23 @@ type BusinessSettings = {
   weekly_release_window_days: number;
 };
 
+type BusinessUserAssignment = {
+  business_id: string;
+  role: string | null;
+  businesses:
+    | {
+        id: string;
+        name: string;
+        slug: string;
+      }
+    | {
+        id: string;
+        name: string;
+        slug: string;
+      }[]
+    | null;
+};
+
 type PanelSectionKey =
   | "dayAgenda"
   | "history"
@@ -475,6 +492,9 @@ export default function BarberPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
   const [panelAccessDenied, setPanelAccessDenied] = useState(false);
+  const [panelBusinessMissing, setPanelBusinessMissing] = useState(false);
+  const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
+  const [currentBusinessName, setCurrentBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -677,17 +697,19 @@ export default function BarberPanel() {
     setIsCheckingAdmin(false);
   }
 
-  function loadPanelData() {
-    loadAppointments();
-    loadAppointmentHistory();
-    loadBusinessSettings();
-    loadWorkingHours();
-    loadServices();
-    loadBlockedTimes();
+  function loadPanelData(businessId: string) {
+    loadAppointments(businessId);
+    loadAppointmentHistory(businessId);
+    loadBusinessSettings(true, businessId);
+    loadWorkingHours(businessId);
+    loadServices(businessId);
+    loadBlockedTimes(businessId);
   }
 
   function clearPanelData(keepAccessDenied = false) {
     setIsAuthenticated(false);
+    setCurrentBusinessId(null);
+    setCurrentBusinessName("");
     setAppointments([]);
     setHistoryAppointments([]);
     setWorkingHours([]);
@@ -723,11 +745,13 @@ export default function BarberPanel() {
     if (!keepAccessDenied) {
       setPanelAccessDenied(false);
     }
+    setPanelBusinessMissing(false);
   }
 
   async function verifyAdminAccess() {
     setIsCheckingAdmin(true);
     setPanelAccessDenied(false);
+    setPanelBusinessMissing(false);
 
     const { data, error } = await supabase.rpc("is_admin");
 
@@ -742,10 +766,72 @@ export default function BarberPanel() {
       return;
     }
 
+    const {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      clearPanelData(true);
+      setPanelAccessDenied(true);
+      setIsCheckingAdmin(false);
+      return;
+    }
+
+    const assignedBusiness = await loadAssignedBusiness(user.id, user.email ?? "");
+
+    if (!assignedBusiness) {
+      clearPanelData();
+      setPanelBusinessMissing(true);
+      setIsCheckingAdmin(false);
+      return;
+    }
+
+    setCurrentBusinessId(assignedBusiness.businessId);
+    setCurrentBusinessName(assignedBusiness.businessName);
     setIsAuthenticated(true);
     setPanelAccessDenied(false);
     setIsCheckingAdmin(false);
-    loadPanelData();
+    loadPanelData(assignedBusiness.businessId);
+  }
+
+  async function loadAssignedBusiness(userId: string, userEmail: string) {
+    const selectQuery = "business_id, role, businesses(id,name,slug)";
+    let result = await supabase
+      .from("business_users")
+      .select(selectQuery)
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!result.data && userEmail) {
+      result = await supabase
+        .from("business_users")
+        .select(selectQuery)
+        .eq("email", userEmail)
+        .limit(1)
+        .maybeSingle();
+    }
+
+    if (result.error) {
+      console.error("Error loading assigned business:", result.error);
+      return null;
+    }
+
+    const assignment = result.data as BusinessUserAssignment | null;
+
+    if (!assignment?.business_id) {
+      return null;
+    }
+
+    const business = Array.isArray(assignment.businesses)
+      ? assignment.businesses[0]
+      : assignment.businesses;
+
+    return {
+      businessId: assignment.business_id,
+      businessName: business?.name ?? ""
+    };
   }
 
   async function handleLogin() {
@@ -772,7 +858,14 @@ export default function BarberPanel() {
     setPassword("");
     clearPanelData();
   }
-  async function loadBusinessSettings(clearMessage = true) {
+  async function loadBusinessSettings(
+    clearMessage = true,
+    businessId = currentBusinessId
+  ) {
+    if (!businessId) {
+      return;
+    }
+
     if (clearMessage) {
       setSettingsMessage("");
     }
@@ -780,8 +873,9 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
+        "id, business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
+      .eq("business_id", businessId)
       .limit(1)
       .maybeSingle();
 
@@ -887,7 +981,10 @@ export default function BarberPanel() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`
       },
-      body: JSON.stringify(settingsToSave)
+      body: JSON.stringify({
+        ...settingsToSave,
+        business_id: currentBusinessId
+      })
     });
 
     if (!response.ok) {
@@ -912,7 +1009,7 @@ export default function BarberPanel() {
   async function saveBusinessSettings() {
     setSettingsMessage("");
 
-    if (!businessSettings.id) {
+    if (!businessSettings.id || !currentBusinessId) {
       console.error("Error saving business settings:", "Missing business settings id");
       setSettingsMessageType("error");
       setSettingsMessage("No se pudo guardar la configuración.");
@@ -952,7 +1049,7 @@ export default function BarberPanel() {
   async function saveBookingSettings() {
     setSettingsMessage("");
 
-    if (!businessSettings.id) {
+    if (!businessSettings.id || !currentBusinessId) {
       console.error("Error saving booking settings:", "Missing business settings id");
       setSettingsMessageType("error");
       setSettingsMessage("No se pudo guardar la configuración de reservas.");
@@ -996,7 +1093,12 @@ export default function BarberPanel() {
       return;
     }
   }
-  async function loadAppointments() {
+  async function loadAppointments(businessId = currentBusinessId) {
+
+    if (!businessId) {
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage("");
 
@@ -1005,6 +1107,7 @@ export default function BarberPanel() {
       .select(
         "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
       )
+      .eq("business_id", businessId)
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
 
@@ -1025,7 +1128,11 @@ export default function BarberPanel() {
     );
   }
 
-  async function loadAppointmentHistory() {
+  async function loadAppointmentHistory(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
     setIsLoadingHistory(true);
     setHistoryMessage("");
     setHistoryMessageType("success");
@@ -1035,6 +1142,7 @@ export default function BarberPanel() {
       .select(
         "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
       )
+      .eq("business_id", businessId)
       .order("appointment_date", { ascending: false })
       .order("appointment_time", { ascending: false });
 
@@ -1058,6 +1166,12 @@ export default function BarberPanel() {
   }
 
   async function deleteAppointmentHistory() {
+    if (!currentBusinessId) {
+      setHistoryMessageType("error");
+      setHistoryMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     if (historyBaseAppointments.length === 0) {
       setHistoryMessageType("error");
       setHistoryMessage("No hay citas en el historial para eliminar.");
@@ -1075,6 +1189,7 @@ export default function BarberPanel() {
     const { error: statusError } = await supabase
       .from("appointments")
       .delete()
+      .eq("business_id", currentBusinessId)
       .in("appointment_status", ["completed", "cancelled", "no_show"]);
 
     if (statusError) {
@@ -1087,6 +1202,7 @@ export default function BarberPanel() {
     const { error: pendingError } = await supabase
       .from("appointments")
       .delete()
+      .eq("business_id", currentBusinessId)
       .eq("appointment_status", "pending")
       .lt("appointment_date", today);
 
@@ -1103,12 +1219,17 @@ export default function BarberPanel() {
     setHistoryMessage("Historial eliminado correctamente.");
   }
 
-  async function loadBlockedTimes() {
+  async function loadBlockedTimes(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
     setIsLoadingBlockedTimes(true);
 
     const { data, error } = await supabase
       .from("blocked_times")
       .select("id, block_date, is_full_day, start_time, end_time, reason")
+      .eq("business_id", businessId)
       .order("block_date", { ascending: true })
       .order("start_time", { ascending: true });
 
@@ -1122,7 +1243,11 @@ export default function BarberPanel() {
     setBlockedTimes((data ?? []) as BlockedTime[]);
   }
 
-  async function loadWorkingHours() {
+  async function loadWorkingHours(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
     setIsLoadingSchedule(true);
     setScheduleMessage("");
 
@@ -1131,6 +1256,7 @@ export default function BarberPanel() {
       .select(
         "id, day_of_week, day_name, is_working, morning_start, morning_end, afternoon_start, afternoon_end, slot_minutes"
       )
+      .eq("business_id", businessId)
       .order("day_of_week", { ascending: true });
 
     setIsLoadingSchedule(false);
@@ -1143,12 +1269,17 @@ export default function BarberPanel() {
     setWorkingHours((data ?? []) as WorkingHour[]);
   }
 
-  async function loadServices() {
+  async function loadServices(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
     setIsLoadingServices(true);
 
     const { data, error } = await supabase
       .from("services")
       .select("id, name, price, duration_minutes, is_active")
+      .eq("business_id", businessId)
       .order("created_at", { ascending: true });
 
     setIsLoadingServices(false);
@@ -1198,6 +1329,13 @@ export default function BarberPanel() {
     dateValue: string,
     durationMinutes: number
   ) {
+    if (!currentBusinessId) {
+      return {
+        hours: [],
+        message: "No se pudo cargar la barbería."
+      };
+    }
+
     if (isPastDate(dateValue)) {
       return {
         hours: [],
@@ -1219,10 +1357,12 @@ export default function BarberPanel() {
       supabase
         .from("appointment_slots")
         .select("appointment_time, duration_minutes")
+        .eq("business_id", currentBusinessId)
         .eq("appointment_date", dateValue),
       supabase
         .from("blocked_times")
         .select("id, block_date, is_full_day, start_time, end_time, reason")
+        .eq("business_id", currentBusinessId)
         .eq("block_date", dateValue)
     ]);
 
@@ -1315,6 +1455,12 @@ export default function BarberPanel() {
   }
 
   async function createManualAppointment() {
+    if (!currentBusinessId) {
+      setManualMessageType("error");
+      setManualMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const selectedService = services.find(
       (service) => service.id === manualAppointment.service_id
     );
@@ -1391,6 +1537,7 @@ export default function BarberPanel() {
       customer_name: manualAppointment.customer_name.trim(),
       customer_phone: manualAppointment.customer_phone.trim(),
       customer_user_id: null,
+      business_id: currentBusinessId,
       barber_name: mainBarber,
       duration_minutes: selectedService.duration_minutes,
       appointment_status: "pending",
@@ -1568,6 +1715,12 @@ export default function BarberPanel() {
       return;
     }
 
+    if (!currentBusinessId) {
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const selectedService = services.find(
       (service) => service.id === editingAppointment.service_id
     );
@@ -1645,7 +1798,8 @@ export default function BarberPanel() {
         appointment_time: editingAppointment.appointment_time,
         duration_minutes: selectedService.duration_minutes
       })
-      .eq("id", editingAppointment.id);
+      .eq("id", editingAppointment.id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       console.error("Error updating appointment:", error);
@@ -1663,13 +1817,23 @@ export default function BarberPanel() {
   }
 
   async function deleteAgendaAppointment(id: string) {
+    if (!currentBusinessId) {
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const confirmed = window.confirm("¿Seguro que quieres eliminar esta cita?");
 
     if (!confirmed) {
       return;
     }
 
-    const { error } = await supabase.from("appointments").delete().eq("id", id);
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       console.error("Error deleting appointment:", error);
@@ -1706,6 +1870,12 @@ export default function BarberPanel() {
     id: string,
     nextStatus: AppointmentStatus
   ) {
+    if (!currentBusinessId) {
+      setAgendaMessageType("error");
+      setAgendaMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     if (nextStatus === "cancelled") {
       const confirmed = window.confirm(
         "¿Seguro que quieres cancelar esta cita? El hueco quedará libre para nuevas reservas."
@@ -1722,7 +1892,8 @@ export default function BarberPanel() {
         appointment_status: nextStatus,
         status_updated_at: new Date().toISOString()
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       console.error("Error updating appointment status:", error);
@@ -1821,6 +1992,11 @@ export default function BarberPanel() {
   }
 
   async function saveService(service: Service) {
+    if (!currentBusinessId) {
+      setServiceMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const { error } = await supabase
       .from("services")
       .update({
@@ -1829,7 +2005,8 @@ export default function BarberPanel() {
         duration_minutes: Number(service.duration_minutes),
         is_active: service.is_active
       })
-      .eq("id", service.id);
+      .eq("id", service.id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setServiceMessage("No se pudo guardar el servicio.");
@@ -1841,6 +2018,11 @@ export default function BarberPanel() {
   }
 
   async function addService() {
+    if (!currentBusinessId) {
+      setServiceMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     if (
       newService.name.trim() === "" ||
       newService.price.trim() === "" ||
@@ -1854,7 +2036,8 @@ export default function BarberPanel() {
       name: newService.name.trim(),
       price: Number(newService.price),
       duration_minutes: Number(newService.duration_minutes),
-      is_active: true
+      is_active: true,
+      business_id: currentBusinessId
     });
 
     if (error) {
@@ -1868,7 +2051,16 @@ export default function BarberPanel() {
   }
 
   async function deleteService(id: string) {
-    const { error } = await supabase.from("services").delete().eq("id", id);
+    if (!currentBusinessId) {
+      setServiceMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("services")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setServiceMessage("No se pudo eliminar el servicio.");
@@ -1879,6 +2071,11 @@ export default function BarberPanel() {
     await loadServices();
   }
   async function addBlockedTime() {
+    if (!currentBusinessId) {
+      setBlockMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     if (newBlockedTime.block_date.trim() === "") {
       setBlockMessage("Elige una fecha para bloquear.");
       return;
@@ -1904,7 +2101,8 @@ export default function BarberPanel() {
       is_full_day: newBlockedTime.is_full_day,
       start_time: newBlockedTime.is_full_day ? null : newBlockedTime.start_time,
       end_time: newBlockedTime.is_full_day ? null : newBlockedTime.end_time,
-      reason: emptyToNull(newBlockedTime.reason)
+      reason: emptyToNull(newBlockedTime.reason),
+      business_id: currentBusinessId
     });
 
     if (error) {
@@ -1924,7 +2122,16 @@ export default function BarberPanel() {
   }
 
   async function deleteBlockedTime(id: string) {
-    const { error } = await supabase.from("blocked_times").delete().eq("id", id);
+    if (!currentBusinessId) {
+      setBlockMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("blocked_times")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setBlockMessage("No se pudo eliminar el bloqueo.");
@@ -1952,6 +2159,11 @@ export default function BarberPanel() {
   }
 
   async function markReminderAsSent(id: string) {
+    if (!currentBusinessId) {
+      setErrorMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const { error } = await supabase
       .from("appointments")
       .update({
@@ -1959,7 +2171,8 @@ export default function BarberPanel() {
         reminder_sent_at: new Date().toISOString(),
         reminder_error: null
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setErrorMessage("No se pudo marcar el recordatorio como enviado.");
@@ -1969,7 +2182,16 @@ export default function BarberPanel() {
     await loadAppointments();
   }
   async function deleteAppointment(id: string) {
-    const { error } = await supabase.from("appointments").delete().eq("id", id);
+    if (!currentBusinessId) {
+      setErrorMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setErrorMessage("No se pudo eliminar la cita.");
@@ -1993,6 +2215,11 @@ export default function BarberPanel() {
   }
 
   async function saveWorkingHour(workingHour: WorkingHour) {
+    if (!currentBusinessId) {
+      setScheduleMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
     const { error } = await supabase
       .from("working_hours")
       .update({
@@ -2003,7 +2230,8 @@ export default function BarberPanel() {
         afternoon_end: emptyToNull(workingHour.afternoon_end),
         slot_minutes: workingHour.slot_minutes
       })
-      .eq("id", workingHour.id);
+      .eq("id", workingHour.id)
+      .eq("business_id", currentBusinessId);
 
     if (error) {
       setScheduleMessage("No se pudo actualizar el horario.");
@@ -2207,6 +2435,31 @@ export default function BarberPanel() {
     );
   }
 
+  if (panelBusinessMissing) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            Área barbero
+          </h1>
+          <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
+            No tienes ninguna barbería asignada.
+          </p>
+          <button
+            className="mt-4 rounded-2xl border border-red-400/30 px-4 py-3 text-xs font-semibold text-red-100 transition hover:bg-red-400/10"
+            onClick={handleLogout}
+            type="button"
+          >
+            Cerrar sesión
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
@@ -2296,7 +2549,14 @@ export default function BarberPanel() {
             BARBERFLOW
           </p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <h1 className="text-3xl font-bold text-white">Panel del barbero</h1>
+            <div>
+              <h1 className="text-3xl font-bold text-white">Panel del barbero</h1>
+              {currentBusinessName && (
+                <p className="mt-2 text-sm font-semibold text-white/55">
+                  {currentBusinessName}
+                </p>
+              )}
+            </div>
             <div className="flex sm:justify-end">
               <button
                 className="rounded-2xl border border-red-400/30 px-4 py-3 text-xs font-semibold text-red-100 transition hover:bg-red-400/10"

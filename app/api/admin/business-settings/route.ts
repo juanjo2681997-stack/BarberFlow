@@ -77,6 +77,27 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json();
+  let businessId = typeof body.business_id === "string" ? body.business_id : "";
+
+  if (!businessId && body.id) {
+    const { data: settingsBusiness, error: settingsBusinessError } =
+      await supabaseAdmin
+        .from("business_settings")
+        .select("business_id")
+        .eq("id", body.id)
+        .maybeSingle();
+
+    if (settingsBusinessError) {
+      console.error("Error loading business settings business:", settingsBusinessError);
+      return NextResponse.json(
+        { error: "No se pudo comprobar la barbería." },
+        { status: 500 }
+      );
+    }
+
+    businessId = settingsBusiness?.business_id ?? "";
+  }
+
   const bookingLimitValue = toPositiveNumber(body.booking_limit_value);
   const weeklyReleaseDay = toWeekDay(body.weekly_release_day);
   const weeklyReleaseWindowDays = toPositiveNumber(
@@ -85,6 +106,7 @@ export async function PATCH(request: Request) {
 
   if (
     !body.id ||
+    !businessId ||
     !isBoolean(body.booking_limit_enabled) ||
     bookingLimitValue === null ||
     !isBookingLimitMode(body.booking_limit_mode) ||
@@ -96,6 +118,36 @@ export async function PATCH(request: Request) {
       { error: "Datos de configuración de reservas no válidos." },
       { status: 400 }
     );
+  }
+
+  let businessUserResult = await supabaseAdmin
+    .from("business_users")
+    .select("business_id")
+    .eq("business_id", businessId)
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (!businessUserResult.data && user.email) {
+    businessUserResult = await supabaseAdmin
+      .from("business_users")
+      .select("business_id")
+      .eq("business_id", businessId)
+      .eq("email", user.email)
+      .limit(1)
+      .maybeSingle();
+  }
+
+  if (businessUserResult.error) {
+    console.error("Error checking business user:", businessUserResult.error);
+    return NextResponse.json(
+      { error: "No se pudo comprobar la barbería del administrador." },
+      { status: 500 }
+    );
+  }
+
+  if (!businessUserResult.data) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   }
 
   const { data, error } = await supabaseAdmin
@@ -117,6 +169,7 @@ export async function PATCH(request: Request) {
       updated_at: new Date().toISOString()
     })
     .eq("id", body.id)
+    .eq("business_id", businessId)
     .select()
     .single();
 

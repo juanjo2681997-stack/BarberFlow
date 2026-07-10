@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 type Appointment = {
   id: string;
+  business_id: string | null;
   appointment_time: string;
   customer_name: string;
   service: string;
@@ -15,6 +16,10 @@ type PushSubscriptionRow = {
   endpoint: string;
   p256dh: string;
   auth: string;
+};
+
+type BusinessSettingsRow = {
+  business_name: string | null;
 };
 
 function formatDateForSupabase(date: Date) {
@@ -50,10 +55,11 @@ function getAdminClient() {
 async function markReminder(
   supabase: NonNullable<ReturnType<typeof getAdminClient>>,
   appointmentId: string,
+  businessId: string | null,
   status: "sent" | "failed",
   errorMessage: string | null
 ) {
-  await supabase
+  let query = supabase
     .from("appointments")
     .update({
       reminder_status: status,
@@ -61,6 +67,12 @@ async function markReminder(
       reminder_error: errorMessage
     })
     .eq("id", appointmentId);
+
+  if (businessId) {
+    query = query.eq("business_id", businessId);
+  }
+
+  await query;
 }
 
 async function handleSendPushReminders(request: Request) {
@@ -94,18 +106,11 @@ async function handleSendPushReminders(request: Request) {
 
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
-  const { data: settings } = await supabase
-    .from("business_settings")
-    .select("business_name")
-    .limit(1)
-    .maybeSingle();
-
-  const businessName = settings?.business_name || "Pablo's Barbershop";
   const tomorrow = getTomorrowDate();
 
   const { data: appointments, error: appointmentsError } = await supabase
     .from("appointments")
-    .select("id, appointment_time, customer_name, service")
+    .select("id, business_id, appointment_time, customer_name, service")
     .eq("appointment_date", tomorrow)
     .eq("reminder_status", "pending")
     .order("appointment_time", { ascending: true });
@@ -115,16 +120,26 @@ async function handleSendPushReminders(request: Request) {
   }
 
   const results = [];
+  const businessNameCache = new Map<string, string>();
 
   for (const appointment of (appointments ?? []) as Appointment[]) {
     try {
-      const { data: subscription, error: subscriptionError } = await supabase
+      let subscriptionQuery = supabase
         .from("push_subscriptions")
         .select("endpoint, p256dh, auth")
         .eq("appointment_id", appointment.id)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+
+      if (appointment.business_id) {
+        subscriptionQuery = subscriptionQuery.eq(
+          "business_id",
+          appointment.business_id
+        );
+      }
+
+      const { data: subscription, error: subscriptionError } =
+        await subscriptionQuery.maybeSingle();
 
       if (subscriptionError) {
         throw new Error(subscriptionError.message);
@@ -132,6 +147,26 @@ async function handleSendPushReminders(request: Request) {
 
       if (!subscription) {
         throw new Error("No hay suscripción push para esta cita.");
+      }
+
+      let businessName = "Pablo's Barbershop";
+
+      if (appointment.business_id) {
+        const cachedBusinessName = businessNameCache.get(appointment.business_id);
+
+        if (cachedBusinessName) {
+          businessName = cachedBusinessName;
+        } else {
+          const { data: settings } = await supabase
+            .from("business_settings")
+            .select("business_name")
+            .eq("business_id", appointment.business_id)
+            .limit(1)
+            .maybeSingle();
+          const settingsRow = settings as BusinessSettingsRow | null;
+          businessName = settingsRow?.business_name || businessName;
+          businessNameCache.set(appointment.business_id, businessName);
+        }
       }
 
       const pushSubscription = subscription as PushSubscriptionRow;
@@ -153,12 +188,18 @@ async function handleSendPushReminders(request: Request) {
         })
       );
 
-      await markReminder(supabase, appointment.id, "sent", null);
+      await markReminder(supabase, appointment.id, appointment.business_id, "sent", null);
       results.push({ appointment_id: appointment.id, status: "sent" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo enviar.";
 
-      await markReminder(supabase, appointment.id, "failed", message);
+      await markReminder(
+        supabase,
+        appointment.id,
+        appointment.business_id,
+        "failed",
+        message
+      );
       results.push({ appointment_id: appointment.id, status: "failed", error: message });
     }
   }

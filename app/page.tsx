@@ -74,6 +74,12 @@ type BusinessSettings = {
   weekly_release_window_days: number;
 };
 
+type Business = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 type DayOption = {
   value: string;
   label: string;
@@ -128,6 +134,7 @@ type CustomerLoginForm = {
 
 type AccessMode = "initial" | "customer" | "barber";
 
+const publicBusinessSlug = "barberflow-demo";
 const mainBarber = "Pablo";
 
 const weekDays = [
@@ -598,6 +605,8 @@ function getBlockedHours(
 export default function Home() {
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
+  const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
+  const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
     defaultBusinessSettings
@@ -653,6 +662,7 @@ export default function Home() {
   const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
     useState(false);
   const [isCustomerAdmin, setIsCustomerAdmin] = useState(false);
+  const [businessLoadMessage, setBusinessLoadMessage] = useState("");
 
   const secondaryLinks = [
     {
@@ -742,11 +752,27 @@ export default function Home() {
     customerProfile.full_name.trim() !== "" && customerProfile.phone.trim() !== "";
 
   useEffect(() => {
+    loadCurrentBusiness();
+  }, []);
+
+  useEffect(() => {
+    if (!currentBusinessId) {
+      return;
+    }
+
     loadBusinessSettings();
     loadServices();
     loadWorkingHours();
     loadBlockedTimes();
-  }, []);
+  }, [currentBusinessId]);
+
+  useEffect(() => {
+    if (!currentBusinessId || !customerUser || isCustomerAdmin) {
+      return;
+    }
+
+    loadCustomerAppointments(customerUser.id);
+  }, [currentBusinessId, customerUser?.id, isCustomerAdmin]);
 
   useEffect(() => {
     checkCustomerSession();
@@ -864,12 +890,40 @@ export default function Home() {
     }
   }, [formData.service, formData.day, formData.hour, availableHours, dayAppointments, dayBlockedTimes, blockedTimes, selectedServiceDuration, currentTimeInfo]);
 
+  async function loadCurrentBusiness() {
+    setBusinessLoadMessage("");
+
+    const { data, error } = await supabase
+      .from("businesses")
+      .select("id, name, slug")
+      .eq("slug", publicBusinessSlug)
+      .single();
+
+    if (error || !data) {
+      console.error("Error loading business:", error);
+      setCurrentBusiness(null);
+      setCurrentBusinessId(null);
+      setBusinessLoadMessage("No se pudo cargar la barbería.");
+      setIsLoadingSchedule(false);
+      setIsLoadingServices(false);
+      return;
+    }
+
+    setCurrentBusiness(data as Business);
+    setCurrentBusinessId(data.id);
+  }
+
   async function loadBusinessSettings() {
+    if (!currentBusinessId) {
+      return;
+    }
+
     const { data, error } = await supabase
       .from("business_settings")
       .select(
         "business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
+      .eq("business_id", currentBusinessId)
       .limit(1)
       .maybeSingle();
 
@@ -914,11 +968,16 @@ export default function Home() {
     setBusinessSettings(nextBusinessSettings);
   }
   async function loadServices() {
+    if (!currentBusinessId) {
+      return;
+    }
+
     setIsLoadingServices(true);
 
     const { data, error } = await supabase
       .from("services")
       .select("id, name, price, duration_minutes, is_active")
+      .eq("business_id", currentBusinessId)
       .eq("is_active", true)
       .order("name", { ascending: true });
 
@@ -941,11 +1000,16 @@ export default function Home() {
   }
 
   async function loadBlockedTimes() {
+    if (!currentBusinessId) {
+      return;
+    }
+
     const today = new Date();
 
     const { data, error } = await supabase
       .from("blocked_times")
       .select("id, block_date, is_full_day, start_time, end_time, reason")
+      .eq("business_id", currentBusinessId)
       .gte("block_date", formatDateForSupabase(today))
       .order("block_date", { ascending: true })
       .order("start_time", { ascending: true });
@@ -962,6 +1026,10 @@ export default function Home() {
   }
 
   async function loadWorkingHours() {
+    if (!currentBusinessId) {
+      return;
+    }
+
     setIsLoadingSchedule(true);
 
     const { data, error } = await supabase
@@ -969,6 +1037,7 @@ export default function Home() {
       .select(
         "id, day_of_week, day_name, is_working, morning_start, morning_end, afternoon_start, afternoon_end, slot_minutes"
       )
+      .eq("business_id", currentBusinessId)
       .order("day_of_week", { ascending: true });
 
     setIsLoadingSchedule(false);
@@ -1044,11 +1113,7 @@ export default function Home() {
       return;
     }
 
-    await Promise.all([
-      loadBusinessSettings(),
-      loadCustomerProfile(user.id),
-      loadCustomerAppointments(user.id)
-    ]);
+    await loadCustomerProfile(user.id);
   }
 
   async function checkCustomerAdminAccess() {
@@ -1357,6 +1422,10 @@ export default function Home() {
   }
 
   async function loadCustomerAppointments(userId: string) {
+    if (!currentBusinessId) {
+      return;
+    }
+
     setIsLoadingCustomerAppointments(true);
     setCustomerAppointmentsMessage(null);
 
@@ -1366,6 +1435,7 @@ export default function Home() {
         "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status"
       )
       .eq("customer_user_id", userId)
+      .eq("business_id", currentBusinessId)
       .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
@@ -1439,6 +1509,14 @@ export default function Home() {
   }
 
   async function selectDay(day: DayOption) {
+    if (!currentBusinessId) {
+      setFormMessage({
+        text: "No se pudo cargar la barbería.",
+        type: "error"
+      });
+      return;
+    }
+
     if (
       businessSettings.weekly_release_enabled &&
       !isTodayWeeklyReleaseDay(businessSettings)
@@ -1527,10 +1605,12 @@ export default function Home() {
       supabase
         .from("appointment_slots")
         .select("appointment_time, duration_minutes")
+        .eq("business_id", currentBusinessId)
         .eq("appointment_date", day.value),
       supabase
         .from("blocked_times")
         .select("id, block_date, is_full_day, start_time, end_time, reason")
+        .eq("business_id", currentBusinessId)
         .eq("block_date", day.value)
     ]);
 
@@ -1597,6 +1677,14 @@ export default function Home() {
 
   async function confirmBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!currentBusinessId) {
+      setFormMessage({
+        text: "No se pudo cargar la barbería.",
+        type: "error"
+      });
+      return;
+    }
 
     if (!customerUser) {
       setFormMessage({
@@ -1725,10 +1813,12 @@ export default function Home() {
       supabase
         .from("appointment_slots")
         .select("appointment_time, duration_minutes")
+        .eq("business_id", currentBusinessId)
         .eq("appointment_date", formData.day),
       supabase
         .from("blocked_times")
         .select("id, block_date, is_full_day, start_time, end_time, reason")
+        .eq("business_id", currentBusinessId)
         .eq("block_date", formData.day)
     ]);
 
@@ -1809,6 +1899,7 @@ export default function Home() {
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_user_id: customerUser.id,
+      business_id: currentBusinessId,
       barber_name: mainBarber,
       duration_minutes: selectedService.duration_minutes
     });
@@ -1878,6 +1969,14 @@ export default function Home() {
   }
 
   async function activatePushReminder() {
+    if (!currentBusinessId) {
+      setPushMessage({
+        text: "No se pudo cargar la barbería.",
+        type: "error"
+      });
+      return;
+    }
+
     if (!lastAppointment) {
       setPushMessage({
         text: "Primero confirma una reserva para activar el recordatorio.",
@@ -1949,6 +2048,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           appointment_id: lastAppointment.id,
+          business_id: currentBusinessId,
           customer_phone: lastAppointment.customerPhone,
           subscription,
           user_agent: navigator.userAgent
@@ -2007,11 +2107,16 @@ export default function Home() {
             BARBERFLOW
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
-            {businessSettings.business_name}
+            {currentBusiness?.name || businessSettings.business_name}
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
             Elige cómo quieres acceder.
           </p>
+          {businessLoadMessage && (
+            <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+              {businessLoadMessage}
+            </p>
+          )}
 
           <div className="mt-8 grid grid-cols-1 gap-4">
             <button

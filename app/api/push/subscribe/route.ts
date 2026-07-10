@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 type PushSubscriptionBody = {
   appointment_id?: string;
+  business_id?: string;
   customer_phone?: string;
   user_agent?: string;
   subscription?: {
@@ -41,7 +42,14 @@ export async function POST(request: Request) {
     const p256dh = body.subscription?.keys?.p256dh;
     const auth = body.subscription?.keys?.auth;
 
-    if (!body.appointment_id || !body.customer_phone || !endpoint || !p256dh || !auth) {
+    if (
+      !body.appointment_id ||
+      !body.business_id ||
+      !body.customer_phone ||
+      !endpoint ||
+      !p256dh ||
+      !auth
+    ) {
       return NextResponse.json(
         { error: "Faltan datos para guardar la suscripción." },
         { status: 400 }
@@ -50,6 +58,7 @@ export async function POST(request: Request) {
 
     const { error } = await supabase.from("push_subscriptions").insert({
       appointment_id: body.appointment_id,
+      business_id: body.business_id,
       customer_phone: body.customer_phone,
       endpoint,
       p256dh,
