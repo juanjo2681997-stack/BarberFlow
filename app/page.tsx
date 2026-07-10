@@ -134,7 +134,6 @@ type CustomerLoginForm = {
 
 type AccessMode = "initial" | "customer" | "barber";
 
-const publicBusinessSlug = "barberflow-demo";
 const mainBarber = "Pablo";
 
 const weekDays = [
@@ -607,6 +606,7 @@ export default function Home() {
   const [formData, setFormData] = useState<BookingForm>(initialForm);
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
   const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
     defaultBusinessSettings
@@ -619,6 +619,7 @@ export default function Home() {
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [isLoadingHours, setIsLoadingHours] = useState(false);
+  const [isLoadingBusinesses, setIsLoadingBusinesses] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
   const [lastAppointment, setLastAppointment] =
@@ -663,6 +664,9 @@ export default function Home() {
     useState(false);
   const [isCustomerAdmin, setIsCustomerAdmin] = useState(false);
   const [businessLoadMessage, setBusinessLoadMessage] = useState("");
+  const [directBusinessSlug, setDirectBusinessSlug] = useState<string | null>(
+    null
+  );
 
   const secondaryLinks = [
     {
@@ -750,9 +754,10 @@ export default function Home() {
   const isCustomerLoggedIn = customerUser !== null;
   const isCustomerProfileComplete =
     customerProfile.full_name.trim() !== "" && customerProfile.phone.trim() !== "";
+  const isDirectBusinessEntry = directBusinessSlug !== null && directBusinessSlug !== "";
 
   useEffect(() => {
-    loadCurrentBusiness();
+    initializeBusinessFromUrl();
   }, []);
 
   useEffect(() => {
@@ -773,6 +778,19 @@ export default function Home() {
 
     loadCustomerAppointments(customerUser.id);
   }, [currentBusinessId, customerUser?.id, isCustomerAdmin]);
+
+  useEffect(() => {
+    if (
+      !isCustomerLoggedIn ||
+      isCustomerAdmin ||
+      currentBusinessId ||
+      directBusinessSlug !== ""
+    ) {
+      return;
+    }
+
+    loadBusinesses();
+  }, [isCustomerLoggedIn, isCustomerAdmin, currentBusinessId, directBusinessSlug]);
 
   useEffect(() => {
     checkCustomerSession();
@@ -890,27 +908,112 @@ export default function Home() {
     }
   }, [formData.service, formData.day, formData.hour, availableHours, dayAppointments, dayBlockedTimes, blockedTimes, selectedServiceDuration, currentTimeInfo]);
 
-  async function loadCurrentBusiness() {
+  async function initializeBusinessFromUrl() {
     setBusinessLoadMessage("");
+
+    const params = new URLSearchParams(window.location.search);
+    const businessSlug = params.get("barberia")?.trim() ?? "";
+
+    setDirectBusinessSlug(businessSlug);
+
+    if (!businessSlug) {
+      setIsLoadingSchedule(false);
+      setIsLoadingServices(false);
+      return;
+    }
+
+    setAccessMode("customer");
+    await loadBusinessBySlug(businessSlug);
+  }
+
+  function prepareBusinessSelection(business: Business) {
+    setCurrentBusiness(business);
+    setCurrentBusinessId(business.id);
+    setBusinessSettings(defaultBusinessSettings);
+    setServices([]);
+    setWorkingHours([]);
+    setAvailableHours([]);
+    setDayAppointments([]);
+    setBlockedTimes([]);
+    setDayBlockedTimes([]);
+    setFormData(initialForm);
+    setLastAppointment(null);
+    setPushMessage(null);
+    setScheduleError("");
+    setFormMessage(null);
+    setBusinessLoadMessage("");
+    setIsLoadingSchedule(true);
+    setIsLoadingServices(true);
+  }
+
+  async function loadBusinessBySlug(slug: string) {
+    setBusinessLoadMessage("");
+    setIsLoadingSchedule(true);
+    setIsLoadingServices(true);
 
     const { data, error } = await supabase
       .from("businesses")
       .select("id, name, slug")
-      .eq("slug", publicBusinessSlug)
+      .eq("slug", slug)
       .single();
 
     if (error || !data) {
       console.error("Error loading business:", error);
       setCurrentBusiness(null);
       setCurrentBusinessId(null);
-      setBusinessLoadMessage("No se pudo cargar la barbería.");
+      setBusinessLoadMessage("No se encontró esta barbería.");
       setIsLoadingSchedule(false);
       setIsLoadingServices(false);
       return;
     }
 
-    setCurrentBusiness(data as Business);
-    setCurrentBusinessId(data.id);
+    prepareBusinessSelection(data as Business);
+  }
+
+  async function loadBusinesses() {
+    setIsLoadingBusinesses(true);
+    setBusinessLoadMessage("");
+
+    const { data, error } = await supabase
+      .from("businesses")
+      .select("id, name, slug")
+      .order("name", { ascending: true });
+
+    setIsLoadingBusinesses(false);
+
+    if (error) {
+      console.error("Error loading businesses:", error);
+      setBusinesses([]);
+      setBusinessLoadMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    setBusinesses((data ?? []) as Business[]);
+  }
+
+  function selectBusiness(business: Business) {
+    prepareBusinessSelection(business);
+  }
+
+  function changeBusiness() {
+    setCurrentBusiness(null);
+    setCurrentBusinessId(null);
+    setBusinessSettings(defaultBusinessSettings);
+    setServices([]);
+    setWorkingHours([]);
+    setAvailableHours([]);
+    setDayAppointments([]);
+    setBlockedTimes([]);
+    setDayBlockedTimes([]);
+    setCustomerAppointments([]);
+    setFormData(initialForm);
+    setLastAppointment(null);
+    setPushMessage(null);
+    setFormMessage(null);
+    setScheduleError("");
+    setIsLoadingSchedule(false);
+    setIsLoadingServices(false);
+    loadBusinesses();
   }
 
   async function loadBusinessSettings() {
@@ -2084,7 +2187,7 @@ export default function Home() {
     }
   }
 
-  if (isCheckingCustomerSession) {
+  if (isCheckingCustomerSession || directBusinessSlug === null) {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
@@ -2099,6 +2202,29 @@ export default function Home() {
     );
   }
 
+  if (isDirectBusinessEntry && !currentBusinessId) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+            BARBERFLOW
+          </p>
+          <h1 className="mt-6 text-3xl font-bold text-white">
+            {businessLoadMessage || "Cargando barbería..."}
+          </h1>
+          {businessLoadMessage && (
+            <Link
+              className="mt-6 block rounded-2xl border border-white/10 px-4 py-3 text-center text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
+              href="/"
+            >
+              Ir al inicio
+            </Link>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   if (!isCustomerLoggedIn && accessMode === "initial") {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
@@ -2107,7 +2233,7 @@ export default function Home() {
             BARBERFLOW
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
-            {currentBusiness?.name || businessSettings.business_name}
+            {currentBusiness?.name || "BarberFlow"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
             Elige cómo quieres acceder.
@@ -2156,13 +2282,15 @@ export default function Home() {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
-          <button
-            className="mb-5 text-xs font-semibold text-white/50 transition hover:text-barber-gold"
-            onClick={() => setAccessMode("initial")}
-            type="button"
-          >
-            Volver
-          </button>
+          {!isDirectBusinessEntry && (
+            <button
+              className="mb-5 text-xs font-semibold text-white/50 transition hover:text-barber-gold"
+              onClick={() => setAccessMode("initial")}
+              type="button"
+            >
+              Volver
+            </button>
+          )}
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
             BARBERFLOW
           </p>
@@ -2254,7 +2382,7 @@ export default function Home() {
             Crea tu cuenta para reservar cita y consultar tus próximas reservas.
           </p>
           <p className="mt-2 text-lg font-bold text-white">
-            {businessSettings.business_name}
+            {currentBusiness?.name || "BarberFlow"}
           </p>
 
           {customerMessage && (
@@ -2485,6 +2613,71 @@ export default function Home() {
     );
   }
 
+  if (!currentBusinessId) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
+                BARBERFLOW
+              </p>
+              <h1 className="mt-6 text-3xl font-bold text-white">
+                ¿Dónde quieres reservar?
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-white/65">
+                Elige la barbería para ver sus servicios, horarios y citas
+                disponibles.
+              </p>
+            </div>
+            <button
+              className="rounded-2xl border border-red-400/40 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/10"
+              disabled={isCustomerAuthLoading}
+              onClick={logoutCustomer}
+              type="button"
+            >
+              Cerrar sesión
+            </button>
+          </div>
+
+          {businessLoadMessage && (
+            <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+              {businessLoadMessage}
+            </p>
+          )}
+
+          <div className="mt-8 space-y-4">
+            {isLoadingBusinesses ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
+                Cargando barberías...
+              </p>
+            ) : businesses.length === 0 ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
+                No hay barberías disponibles.
+              </p>
+            ) : (
+              businesses.map((business) => (
+                <article
+                  className="rounded-2xl border border-white/10 bg-black/20 p-5"
+                  key={business.id}
+                >
+                  <p className="text-xl font-bold text-white">{business.name}</p>
+                  <button
+                    className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                    onClick={() => selectBusiness(business)}
+                    type="button"
+                  >
+                    Reservar aquí
+                  </button>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-between rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
@@ -2493,13 +2686,14 @@ export default function Home() {
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
               BARBERFLOW
             </p>
-            {isCustomerAdmin && (
-              <Link
+            {!isDirectBusinessEntry && (
+              <button
                 className="text-xs font-semibold text-white/40 transition hover:text-barber-gold"
-                href="/panel"
+                onClick={changeBusiness}
+                type="button"
               >
-                Área barbero
-              </Link>
+                Cambiar barbería
+              </button>
             )}
           </div>
 
