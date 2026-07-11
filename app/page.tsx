@@ -74,10 +74,24 @@ type BusinessSettings = {
   weekly_release_window_days: number;
 };
 
+type PlanStatus = "demo" | "active" | "inactive" | string;
+
 type Business = {
   id: string;
   name: string;
   slug: string;
+  plan_status: PlanStatus | null;
+  public_booking_enabled: boolean | null;
+  business_name?: string | null;
+  slogan?: string | null;
+  address?: string | null;
+};
+
+type BusinessSettingsSummary = {
+  business_id: string;
+  business_name: string | null;
+  slogan: string | null;
+  address: string | null;
 };
 
 type DayOption = {
@@ -601,6 +615,21 @@ function getBlockedHours(
   return hours.filter((hour) => blockOverlaps(hour, durationMinutes, blockedTimes));
 }
 
+function isBusinessAvailableForBooking(business: Business) {
+  return (
+    business.public_booking_enabled === true &&
+    (business.plan_status === "demo" || business.plan_status === "active")
+  );
+}
+
+function getBusinessDisplayName(business: Business | null) {
+  return business?.business_name?.trim() || business?.name || "BarberFlow";
+}
+
+function getBusinessSecondaryText(business: Business) {
+  return business.slogan?.trim() || business.address?.trim() || "";
+}
+
 export default function Home() {
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
@@ -953,7 +982,7 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("businesses")
-      .select("id, name, slug")
+      .select("id, name, slug, plan_status, public_booking_enabled")
       .eq("slug", slug)
       .single();
 
@@ -967,7 +996,20 @@ export default function Home() {
       return;
     }
 
-    prepareBusinessSelection(data as Business);
+    const business = data as Business;
+
+    if (!isBusinessAvailableForBooking(business)) {
+      setCurrentBusiness(null);
+      setCurrentBusinessId(null);
+      setBusinessLoadMessage("Esta barbería no está disponible para reservas.");
+      setIsLoadingSchedule(false);
+      setIsLoadingServices(false);
+      return;
+    }
+
+    const businessWithSettings = await addBusinessSettingsSummary(business);
+
+    prepareBusinessSelection(businessWithSettings);
   }
 
   async function loadBusinesses() {
@@ -976,7 +1018,9 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("businesses")
-      .select("id, name, slug")
+      .select("id, name, slug, plan_status, public_booking_enabled")
+      .eq("public_booking_enabled", true)
+      .in("plan_status", ["demo", "active"])
       .order("name", { ascending: true });
 
     setIsLoadingBusinesses(false);
@@ -988,7 +1032,68 @@ export default function Home() {
       return;
     }
 
-    setBusinesses((data ?? []) as Business[]);
+    const availableBusinesses = ((data ?? []) as Business[]).filter(
+      isBusinessAvailableForBooking
+    );
+    setBusinesses(await addBusinessSettingsSummaries(availableBusinesses));
+  }
+
+  async function addBusinessSettingsSummary(business: Business) {
+    const { data, error } = await supabase
+      .from("business_settings")
+      .select("business_id, business_name, slogan, address")
+      .eq("business_id", business.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error loading business settings summary:", error);
+      return business;
+    }
+
+    const settings = data as BusinessSettingsSummary | null;
+
+    return {
+      ...business,
+      business_name: settings?.business_name ?? null,
+      slogan: settings?.slogan ?? null,
+      address: settings?.address ?? null
+    };
+  }
+
+  async function addBusinessSettingsSummaries(businessList: Business[]) {
+    if (businessList.length === 0) {
+      return [];
+    }
+
+    const businessIds = businessList.map((business) => business.id);
+    const { data, error } = await supabase
+      .from("business_settings")
+      .select("business_id, business_name, slogan, address")
+      .in("business_id", businessIds);
+
+    if (error) {
+      console.error("Error loading business settings summaries:", error);
+      return businessList;
+    }
+
+    const settingsByBusinessId = new Map(
+      ((data ?? []) as BusinessSettingsSummary[]).map((settings) => [
+        settings.business_id,
+        settings
+      ])
+    );
+
+    return businessList.map((business) => {
+      const settings = settingsByBusinessId.get(business.id);
+
+      return {
+        ...business,
+        business_name: settings?.business_name ?? null,
+        slogan: settings?.slogan ?? null,
+        address: settings?.address ?? null
+      };
+    });
   }
 
   function selectBusiness(business: Business) {
@@ -1024,7 +1129,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
+        "business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .eq("business_id", currentBusinessId)
       .limit(1)
@@ -1069,6 +1174,16 @@ export default function Home() {
     }
 
     setBusinessSettings(nextBusinessSettings);
+    setCurrentBusiness((business) =>
+      business
+        ? {
+            ...business,
+            business_name: nextBusinessSettings.business_name,
+            slogan: nextBusinessSettings.slogan,
+            address: nextBusinessSettings.address
+          }
+        : business
+    );
   }
   async function loadServices() {
     if (!currentBusinessId) {
@@ -2233,7 +2348,7 @@ export default function Home() {
             BARBERFLOW
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
-            {currentBusiness?.name || "BarberFlow"}
+            {getBusinessDisplayName(currentBusiness)}
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
             Elige cómo quieres acceder.
@@ -2382,7 +2497,7 @@ export default function Home() {
             Crea tu cuenta para reservar cita y consultar tus próximas reservas.
           </p>
           <p className="mt-2 text-lg font-bold text-white">
-            {currentBusiness?.name || "BarberFlow"}
+            {getBusinessDisplayName(currentBusiness)}
           </p>
 
           {customerMessage && (
@@ -2656,21 +2771,32 @@ export default function Home() {
                 No hay barberías disponibles.
               </p>
             ) : (
-              businesses.map((business) => (
-                <article
-                  className="rounded-2xl border border-white/10 bg-black/20 p-5"
-                  key={business.id}
-                >
-                  <p className="text-xl font-bold text-white">{business.name}</p>
-                  <button
-                    className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
-                    onClick={() => selectBusiness(business)}
-                    type="button"
+              businesses.map((business) => {
+                const secondaryText = getBusinessSecondaryText(business);
+
+                return (
+                  <article
+                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
+                    key={business.id}
                   >
-                    Reservar aquí
-                  </button>
-                </article>
-              ))
+                    <p className="text-xl font-bold text-white">
+                      {getBusinessDisplayName(business)}
+                    </p>
+                    {secondaryText && (
+                      <p className="mt-2 text-sm leading-6 text-white/60">
+                        {secondaryText}
+                      </p>
+                    )}
+                    <button
+                      className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                      onClick={() => selectBusiness(business)}
+                      type="button"
+                    >
+                      Reservar aquí
+                    </button>
+                  </article>
+                );
+              })
             )}
           </div>
         </section>
