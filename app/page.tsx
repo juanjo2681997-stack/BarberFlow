@@ -626,8 +626,12 @@ function getBusinessDisplayName(business: Business | null) {
   return business?.business_name?.trim() || business?.name || "BarberFlow";
 }
 
-function getBusinessSecondaryText(business: Business) {
-  return business.slogan?.trim() || business.address?.trim() || "";
+function getBusinessSlogan(business: Business) {
+  return business.slogan?.trim() || "";
+}
+
+function getBusinessAddress(business: Business) {
+  return business.address?.trim() || "";
 }
 
 export default function Home() {
@@ -2772,7 +2776,8 @@ export default function Home() {
               </p>
             ) : (
               businesses.map((business) => {
-                const secondaryText = getBusinessSecondaryText(business);
+                const slogan = getBusinessSlogan(business);
+                const address = getBusinessAddress(business);
 
                 return (
                   <article
@@ -2782,9 +2787,14 @@ export default function Home() {
                     <p className="text-xl font-bold text-white">
                       {getBusinessDisplayName(business)}
                     </p>
-                    {secondaryText && (
+                    {slogan && (
                       <p className="mt-2 text-sm leading-6 text-white/60">
-                        {secondaryText}
+                        {slogan}
+                      </p>
+                    )}
+                    {address && (
+                      <p className="mt-2 text-sm leading-6 text-white/45">
+                        {address}
                       </p>
                     )}
                     <button
