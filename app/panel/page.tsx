@@ -114,6 +114,7 @@ type BusinessSettings = {
   instagram_url: string;
   address: string;
   main_button_text: string;
+  block_cancellation_message: string;
   booking_limit_enabled: boolean;
   booking_limit_value: number;
   booking_limit_mode: "days" | "weeks" | "months";
@@ -153,6 +154,9 @@ type PanelSectionKey =
   | "blocks"
   | "schedule";
 
+const defaultBlockCancellationMessage =
+  "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.";
+
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
   business_name: "Pablo's Barbershop",
@@ -162,6 +166,7 @@ const defaultBusinessSettings: BusinessSettings = {
   instagram_url: "https://www.instagram.com/peluqueria_pablos?igsh=MWdrbXhoY3Rvbmp2Mw==",
   address: "Calle San Francisco,13, 21800, Moguer (Huelva)",
   main_button_text: "Reservar cita",
+  block_cancellation_message: defaultBlockCancellationMessage,
   booking_limit_enabled: true,
   booking_limit_value: 31,
   booking_limit_mode: "days",
@@ -279,12 +284,18 @@ function createHistoryWhatsAppLink(
 }
 
 function createBlockCancellationWhatsAppLink(
-  appointment: BlockCancelledAppointment
+  appointment: BlockCancelledAppointment,
+  messageTemplate: string,
+  businessName: string
 ) {
   const phone = normalizeWhatsAppPhone(appointment.customer_phone);
-  const message = `Hola ${appointment.customer_name}, sentimos avisarte de que tu cita del día ${appointment.appointment_date} a las ${formatAppointmentTime(
-    appointment.appointment_time
-  )} para ${appointment.service} ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.`;
+  const template = messageTemplate.trim() || defaultBlockCancellationMessage;
+  const message = template
+    .replaceAll("{nombre}", appointment.customer_name)
+    .replaceAll("{fecha}", appointment.appointment_date)
+    .replaceAll("{hora}", formatAppointmentTime(appointment.appointment_time))
+    .replaceAll("{servicio}", appointment.service)
+    .replaceAll("{barberia}", businessName);
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
@@ -969,7 +980,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "id, business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
+        "id, business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, block_cancellation_message, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .eq("business_id", businessId)
       .limit(1)
@@ -993,6 +1004,9 @@ export default function BarberPanel() {
       address: data.address || defaultBusinessSettings.address,
       main_button_text:
         data.main_button_text || defaultBusinessSettings.main_button_text,
+      block_cancellation_message:
+        data.block_cancellation_message ||
+        defaultBusinessSettings.block_cancellation_message,
       booking_limit_enabled:
         data.booking_limit_enabled ?? defaultBusinessSettings.booking_limit_enabled,
       booking_limit_value: Number(
@@ -1039,6 +1053,9 @@ export default function BarberPanel() {
       address: data.address || defaultBusinessSettings.address,
       main_button_text:
         data.main_button_text || defaultBusinessSettings.main_button_text,
+      block_cancellation_message:
+        data.block_cancellation_message ||
+        defaultBusinessSettings.block_cancellation_message,
       booking_limit_enabled:
         data.booking_limit_enabled ?? defaultBusinessSettings.booking_limit_enabled,
       booking_limit_value: Number(
@@ -1121,6 +1138,9 @@ export default function BarberPanel() {
       instagram_url: businessForm.instagram_url.trim(),
       address: businessForm.address.trim(),
       main_button_text: businessForm.main_button_text.trim(),
+      block_cancellation_message:
+        businessForm.block_cancellation_message.trim() ||
+        defaultBlockCancellationMessage,
       booking_limit_enabled: businessForm.booking_limit_enabled,
       booking_limit_value: Number(businessForm.booking_limit_value),
       booking_limit_mode: businessForm.booking_limit_mode,
@@ -1161,6 +1181,8 @@ export default function BarberPanel() {
       instagram_url: businessForm.instagram_url,
       address: businessForm.address,
       main_button_text: businessForm.main_button_text,
+      block_cancellation_message:
+        businessForm.block_cancellation_message || defaultBlockCancellationMessage,
       booking_limit_enabled: businessForm.booking_limit_enabled,
       booking_limit_value: Number(businessForm.booking_limit_value),
       booking_limit_mode: businessForm.booking_limit_mode,
@@ -1189,6 +1211,71 @@ export default function BarberPanel() {
       return;
     }
   }
+
+  async function saveBlockCancellationMessage() {
+    setBlockMessage("");
+    setBlockCancelledAppointments([]);
+
+    if (!businessSettings.id || !currentBusinessId) {
+      setBlockMessage("No se pudo guardar el mensaje.");
+      return;
+    }
+
+    const messageToSave =
+      businessForm.block_cancellation_message.trim() ||
+      defaultBlockCancellationMessage;
+    const settingsToSave = {
+      id: businessSettings.id,
+      business_name: businessForm.business_name,
+      slogan: businessForm.slogan,
+      whatsapp_phone: businessForm.whatsapp_phone,
+      whatsapp_message: businessForm.whatsapp_message,
+      instagram_url: businessForm.instagram_url,
+      address: businessForm.address,
+      main_button_text: businessForm.main_button_text,
+      block_cancellation_message: messageToSave,
+      booking_limit_enabled: businessForm.booking_limit_enabled,
+      booking_limit_value: Number(businessForm.booking_limit_value),
+      booking_limit_mode: businessForm.booking_limit_mode,
+      weekly_release_enabled: businessForm.weekly_release_enabled,
+      weekly_release_day: Number(businessForm.weekly_release_day),
+      weekly_release_window_days: Number(businessForm.weekly_release_window_days)
+    };
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setBlockMessage("No se pudo guardar el mensaje.");
+      return;
+    }
+
+    const response = await fetch("/api/admin/business-settings", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        ...settingsToSave,
+        business_id: currentBusinessId
+      })
+    });
+
+    if (!response.ok) {
+      setBlockMessage("No se pudo guardar el mensaje.");
+      return;
+    }
+
+    const result = await response.json();
+    const nextBusinessSettings = normalizeBusinessSettings(
+      result.business_settings as BusinessSettings
+    );
+
+    setBusinessSettings(nextBusinessSettings);
+    setBusinessForm(nextBusinessSettings);
+    setBlockMessage("Mensaje guardado correctamente");
+  }
+
   async function loadAppointments(businessId = currentBusinessId) {
 
     if (!businessId) {
@@ -4087,7 +4174,12 @@ export default function BarberPanel() {
                   </div>
                   <a
                     className="mt-3 block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
-                    href={createBlockCancellationWhatsAppLink(appointment)}
+                    href={createBlockCancellationWhatsAppLink(
+                      appointment,
+                      businessSettings.block_cancellation_message,
+                      businessSettings.business_name ||
+                        defaultBusinessSettings.business_name
+                    )}
                     rel="noreferrer"
                     target="_blank"
                   >
@@ -4242,6 +4334,38 @@ export default function BarberPanel() {
               ))}
             </div>
           )}
+
+          <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-lg font-bold text-white">
+              Mensaje de WhatsApp para citas canceladas por bloqueo
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-white/60">
+              Este mensaje se usará para avisar a los clientes cuando una cita se
+              cancele automáticamente por un bloqueo.
+            </p>
+            <textarea
+              className="mt-4 min-h-32 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+              onChange={(event) => {
+                setBusinessForm((currentForm) => ({
+                  ...currentForm,
+                  block_cancellation_message: event.target.value
+                }));
+                setBlockMessage("");
+              }}
+              value={businessForm.block_cancellation_message}
+            />
+            <p className="mt-2 text-xs font-semibold leading-5 text-white/45">
+              Puedes usar: {"{nombre}"}, {"{fecha}"}, {"{hora}"},{" "}
+              {"{servicio}"}, {"{barberia}"}
+            </p>
+            <button
+              className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+              onClick={saveBlockCancellationMessage}
+              type="button"
+            >
+              Guardar mensaje
+            </button>
+          </div>
             </div>
           )}
         </section>

@@ -160,6 +160,9 @@ export async function PATCH(request: Request) {
       instagram_url: String(body.instagram_url ?? "").trim(),
       address: String(body.address ?? "").trim(),
       main_button_text: String(body.main_button_text ?? "").trim(),
+      block_cancellation_message: String(
+        body.block_cancellation_message ?? ""
+      ).trim(),
       booking_limit_enabled: body.booking_limit_enabled,
       booking_limit_value: bookingLimitValue,
       booking_limit_mode: body.booking_limit_mode,
