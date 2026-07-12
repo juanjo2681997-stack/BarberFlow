@@ -120,11 +120,15 @@ type BusinessUserAssignment = {
         id: string;
         name: string;
         slug: string;
+        plan_status: string | null;
+        public_booking_enabled: boolean | null;
       }
     | {
         id: string;
         name: string;
         slug: string;
+        plan_status: string | null;
+        public_booking_enabled: boolean | null;
       }[]
     | null;
 };
@@ -495,6 +499,13 @@ export default function BarberPanel() {
   const [panelBusinessMissing, setPanelBusinessMissing] = useState(false);
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
   const [currentBusinessName, setCurrentBusinessName] = useState("");
+  const [currentBusinessSlug, setCurrentBusinessSlug] = useState("");
+  const [currentBusinessPlanStatus, setCurrentBusinessPlanStatus] = useState<
+    string | null
+  >(null);
+  const [currentBusinessPublicBookingEnabled, setCurrentBusinessPublicBookingEnabled] =
+    useState<boolean | null>(null);
+  const [publicBookingLinkMessage, setPublicBookingLinkMessage] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -567,6 +578,17 @@ export default function BarberPanel() {
     blocks: false,
     schedule: false
   });
+
+  const publicBookingUrl = currentBusinessSlug
+    ? `${
+        typeof window !== "undefined"
+          ? window.location.origin
+          : "https://barberflow-citas.vercel.app"
+      }/barberia/${currentBusinessSlug}`
+    : "";
+  const isPublicBookingVisible =
+    currentBusinessPublicBookingEnabled === true &&
+    (currentBusinessPlanStatus === "demo" || currentBusinessPlanStatus === "active");
 
   const todayDate = new Date();
   const tomorrowDate = new Date(todayDate);
@@ -710,6 +732,10 @@ export default function BarberPanel() {
     setIsAuthenticated(false);
     setCurrentBusinessId(null);
     setCurrentBusinessName("");
+    setCurrentBusinessSlug("");
+    setCurrentBusinessPlanStatus(null);
+    setCurrentBusinessPublicBookingEnabled(null);
+    setPublicBookingLinkMessage("");
     setAppointments([]);
     setHistoryAppointments([]);
     setWorkingHours([]);
@@ -789,6 +815,11 @@ export default function BarberPanel() {
 
     setCurrentBusinessId(assignedBusiness.businessId);
     setCurrentBusinessName(assignedBusiness.businessName);
+    setCurrentBusinessSlug(assignedBusiness.businessSlug);
+    setCurrentBusinessPlanStatus(assignedBusiness.planStatus);
+    setCurrentBusinessPublicBookingEnabled(
+      assignedBusiness.publicBookingEnabled
+    );
     setIsAuthenticated(true);
     setPanelAccessDenied(false);
     setIsCheckingAdmin(false);
@@ -796,7 +827,8 @@ export default function BarberPanel() {
   }
 
   async function loadAssignedBusiness(userId: string, userEmail: string) {
-    const selectQuery = "business_id, role, businesses(id,name,slug)";
+    const selectQuery =
+      "business_id, role, businesses(id,name,slug,plan_status,public_booking_enabled)";
     let result = await supabase
       .from("business_users")
       .select(selectQuery)
@@ -828,9 +860,33 @@ export default function BarberPanel() {
       ? assignment.businesses[0]
       : assignment.businesses;
 
+    if (!business?.slug) {
+      const { data: businessData, error: businessError } = await supabase
+        .from("businesses")
+        .select("id, name, slug, plan_status, public_booking_enabled")
+        .eq("id", assignment.business_id)
+        .maybeSingle();
+
+      if (businessError || !businessData) {
+        console.error("Error loading assigned business details:", businessError);
+        return null;
+      }
+
+      return {
+        businessId: assignment.business_id,
+        businessName: businessData.name ?? "",
+        businessSlug: businessData.slug ?? "",
+        planStatus: businessData.plan_status ?? null,
+        publicBookingEnabled: businessData.public_booking_enabled ?? null
+      };
+    }
+
     return {
       businessId: assignment.business_id,
-      businessName: business?.name ?? ""
+      businessName: business.name ?? "",
+      businessSlug: business.slug ?? "",
+      planStatus: business.plan_status ?? null,
+      publicBookingEnabled: business.public_booking_enabled ?? null
     };
   }
 
@@ -858,6 +914,21 @@ export default function BarberPanel() {
     setPassword("");
     clearPanelData();
   }
+
+  async function copyPublicBookingLink() {
+    if (!publicBookingUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(publicBookingUrl);
+      setPublicBookingLinkMessage("Enlace copiado");
+    } catch (error) {
+      console.error("Error copying public booking link:", error);
+      setPublicBookingLinkMessage("No se pudo copiar el enlace.");
+    }
+  }
+
   async function loadBusinessSettings(
     clearMessage = true,
     businessId = currentBusinessId
@@ -2568,6 +2639,47 @@ export default function BarberPanel() {
             </div>
           </div>
         </header>
+
+        <section className="mb-8 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4">
+          <p className="text-lg font-bold text-white">
+            Enlace público de tu barbería
+          </p>
+          <p className="mt-2 text-sm leading-6 text-white/65">
+            Comparte este enlace con tus clientes para que puedan reservar cita
+            directamente.
+          </p>
+
+          {!isPublicBookingVisible && (
+            <p className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-semibold text-yellow-100">
+              Tu barbería no está visible para reservas públicas.
+            </p>
+          )}
+
+          <div className="mt-4 space-y-3">
+            <div className="break-all rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/80">
+              {publicBookingUrl || "Cargando enlace..."}
+            </div>
+            <button
+              className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!publicBookingUrl}
+              onClick={copyPublicBookingLink}
+              type="button"
+            >
+              Copiar enlace
+            </button>
+            {publicBookingLinkMessage && (
+              <p
+                className={
+                  publicBookingLinkMessage === "Enlace copiado"
+                    ? "text-sm font-semibold text-barber-gold"
+                    : "text-sm font-semibold text-red-100"
+                }
+              >
+                {publicBookingLinkMessage}
+              </p>
+            )}
+          </div>
+        </section>
 
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
