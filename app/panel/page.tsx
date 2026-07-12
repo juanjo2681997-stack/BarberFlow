@@ -77,6 +77,16 @@ type NewBlockedTimeForm = {
   reason: string;
 };
 
+type BlockCancelledAppointment = {
+  id: string;
+  service: string;
+  appointment_date: string;
+  appointment_time: string;
+  customer_name: string;
+  customer_phone: string;
+  duration_minutes: number;
+};
+
 type ManualAppointmentForm = {
   customer_name: string;
   customer_phone: string;
@@ -264,6 +274,17 @@ function createHistoryWhatsAppLink(
   const message = `Hola ${appointment.customer_name}, te escribimos desde ${businessName} sobre tu cita del día ${appointment.appointment_date} a las ${formatAppointmentTime(
     appointment.appointment_time
   )} para ${appointment.service}.`;
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
+function createBlockCancellationWhatsAppLink(
+  appointment: BlockCancelledAppointment
+) {
+  const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+  const message = `Hola ${appointment.customer_name}, sentimos avisarte de que tu cita del día ${appointment.appointment_date} a las ${formatAppointmentTime(
+    appointment.appointment_time
+  )} para ${appointment.service} ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.`;
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
@@ -544,6 +565,9 @@ export default function BarberPanel() {
     end_time: "",
     reason: ""
   });
+  const [blockCancelledAppointments, setBlockCancelledAppointments] = useState<
+    BlockCancelledAppointment[]
+  >([]);
   const [manualAppointment, setManualAppointment] =
     useState<ManualAppointmentForm>(initialManualAppointmentForm);
   const [manualAvailableHours, setManualAvailableHours] = useState<string[]>([]);
@@ -764,6 +788,7 @@ export default function BarberPanel() {
     setIsLoadingBlockedTimes(false);
     setServiceMessage("");
     setBlockMessage("");
+    setBlockCancelledAppointments([]);
     setManualMessage("");
     setManualMessageType("success");
     setSettingsMessage("");
@@ -2147,6 +2172,8 @@ export default function BarberPanel() {
       return;
     }
 
+    setBlockCancelledAppointments([]);
+
     if (newBlockedTime.block_date.trim() === "") {
       setBlockMessage("Elige una fecha para bloquear.");
       return;
@@ -2181,6 +2208,66 @@ export default function BarberPanel() {
       return;
     }
 
+    const { data: pendingAppointments, error: appointmentsError } = await supabase
+      .from("appointments")
+      .select(
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, duration_minutes"
+      )
+      .eq("business_id", currentBusinessId)
+      .eq("appointment_date", newBlockedTime.block_date)
+      .eq("appointment_status", "pending")
+      .order("appointment_time", { ascending: true });
+
+    if (appointmentsError) {
+      console.error("Error loading appointments affected by block:", appointmentsError);
+      setBlockMessage(
+        "Bloqueo creado correctamente, pero no se pudieron revisar las citas afectadas."
+      );
+      await loadBlockedTimes();
+      return;
+    }
+
+    const affectedAppointments = ((pendingAppointments ?? []) as BlockCancelledAppointment[])
+      .map((appointment) => ({
+        ...appointment,
+        duration_minutes: Number(appointment.duration_minutes) || 30
+      }))
+      .filter((appointment) => {
+        if (newBlockedTime.is_full_day) {
+          return true;
+        }
+
+        return rangesOverlap(
+          appointment.appointment_time,
+          appointment.duration_minutes,
+          newBlockedTime.start_time,
+          newBlockedTime.end_time
+        );
+      });
+
+    if (affectedAppointments.length > 0) {
+      const { error: cancelError } = await supabase
+        .from("appointments")
+        .update({
+          appointment_status: "cancelled",
+          status_updated_at: new Date().toISOString()
+        })
+        .eq("business_id", currentBusinessId)
+        .in(
+          "id",
+          affectedAppointments.map((appointment) => appointment.id)
+        );
+
+      if (cancelError) {
+        console.error("Error cancelling appointments affected by block:", cancelError);
+        setBlockMessage(
+          "Bloqueo creado correctamente, pero no se pudieron cancelar las citas afectadas."
+        );
+        await loadBlockedTimes();
+        return;
+      }
+    }
+
     setNewBlockedTime({
       block_date: "",
       is_full_day: true,
@@ -2188,8 +2275,15 @@ export default function BarberPanel() {
       end_time: "",
       reason: ""
     });
-    setBlockMessage("Bloqueo añadido correctamente.");
+    setBlockCancelledAppointments(affectedAppointments);
+    setBlockMessage(
+      affectedAppointments.length > 0
+        ? `Se han cancelado automáticamente ${affectedAppointments.length} citas afectadas por este bloqueo.`
+        : "Bloqueo creado correctamente. No había citas afectadas."
+    );
     await loadBlockedTimes();
+    await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   async function deleteBlockedTime(id: string) {
@@ -3974,6 +4068,34 @@ export default function BarberPanel() {
             <p className="mt-4 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold">
               {blockMessage}
             </p>
+          )}
+
+          {blockCancelledAppointments.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {blockCancelledAppointments.map((appointment) => (
+                <article
+                  className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4"
+                  key={appointment.id}
+                >
+                  <div className="space-y-1 text-sm leading-6 text-white/75">
+                    <p className="text-base font-bold text-white">
+                      {formatAppointmentTime(appointment.appointment_time)} -{" "}
+                      {appointment.customer_name}
+                    </p>
+                    <p>{appointment.service}</p>
+                    <p>Tel: {appointment.customer_phone}</p>
+                  </div>
+                  <a
+                    className="mt-3 block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                    href={createBlockCancellationWhatsAppLink(appointment)}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Avisar por WhatsApp
+                  </a>
+                </article>
+              ))}
+            </div>
           )}
 
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
