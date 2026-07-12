@@ -2640,47 +2640,6 @@ export default function BarberPanel() {
           </div>
         </header>
 
-        <section className="mb-8 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4">
-          <p className="text-lg font-bold text-white">
-            Enlace público de tu barbería
-          </p>
-          <p className="mt-2 text-sm leading-6 text-white/65">
-            Comparte este enlace con tus clientes para que puedan reservar cita
-            directamente.
-          </p>
-
-          {!isPublicBookingVisible && (
-            <p className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-semibold text-yellow-100">
-              Tu barbería no está visible para reservas públicas.
-            </p>
-          )}
-
-          <div className="mt-4 space-y-3">
-            <div className="break-all rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/80">
-              {publicBookingUrl || "Cargando enlace..."}
-            </div>
-            <button
-              className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!publicBookingUrl}
-              onClick={copyPublicBookingLink}
-              type="button"
-            >
-              Copiar enlace
-            </button>
-            {publicBookingLinkMessage && (
-              <p
-                className={
-                  publicBookingLinkMessage === "Enlace copiado"
-                    ? "text-sm font-semibold text-barber-gold"
-                    : "text-sm font-semibold text-red-100"
-                }
-              >
-                {publicBookingLinkMessage}
-              </p>
-            )}
-          </div>
-        </section>
-
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
@@ -3498,6 +3457,47 @@ export default function BarberPanel() {
                   {settingsMessage}
                 </p>
               )}
+
+              <div className="rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4">
+                <p className="text-lg font-bold text-white">
+                  Enlace público de reservas
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white/65">
+                  Comparte este enlace con tus clientes para que puedan reservar
+                  cita directamente.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  <div className="break-all rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/80">
+                    {publicBookingUrl || "Cargando enlace..."}
+                  </div>
+                  <button
+                    className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!publicBookingUrl}
+                    onClick={copyPublicBookingLink}
+                    type="button"
+                  >
+                    Copiar enlace
+                  </button>
+                  {publicBookingLinkMessage && (
+                    <p
+                      className={
+                        publicBookingLinkMessage === "Enlace copiado"
+                          ? "text-sm font-semibold text-barber-gold"
+                          : "text-sm font-semibold text-red-100"
+                      }
+                    >
+                      {publicBookingLinkMessage}
+                    </p>
+                  )}
+                </div>
+
+                {!isPublicBookingVisible && (
+                  <p className="mt-4 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-semibold text-yellow-100">
+                    Tu barbería no está visible para reservas públicas.
+                  </p>
+                )}
+              </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
                 <div className="grid grid-cols-1 gap-4">
