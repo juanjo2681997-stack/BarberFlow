@@ -87,6 +87,12 @@ type BlockCancelledAppointment = {
   duration_minutes: number;
 };
 
+type PendingScheduleChange = {
+  workingHour: WorkingHour;
+  originalWorkingHour: WorkingHour;
+  affectedAppointments: BlockCancelledAppointment[];
+};
+
 type ManualAppointmentForm = {
   customer_name: string;
   customer_phone: string;
@@ -156,6 +162,9 @@ type PanelSectionKey =
 
 const defaultBlockCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.";
+
+const defaultScheduleChangeCancellationMessage =
+  "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada por un cambio en el horario de la barbería. Disculpa las molestias.";
 
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
@@ -290,6 +299,24 @@ function createBlockCancellationWhatsAppLink(
 ) {
   const phone = normalizeWhatsAppPhone(appointment.customer_phone);
   const template = messageTemplate.trim() || defaultBlockCancellationMessage;
+  const message = template
+    .replaceAll("{nombre}", appointment.customer_name)
+    .replaceAll("{fecha}", appointment.appointment_date)
+    .replaceAll("{hora}", formatAppointmentTime(appointment.appointment_time))
+    .replaceAll("{servicio}", appointment.service)
+    .replaceAll("{barberia}", businessName);
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
+function createScheduleChangeCancellationWhatsAppLink(
+  appointment: BlockCancelledAppointment,
+  messageTemplate: string,
+  businessName: string
+) {
+  const phone = normalizeWhatsAppPhone(appointment.customer_phone);
+  const template =
+    messageTemplate.trim() || defaultScheduleChangeCancellationMessage;
   const message = template
     .replaceAll("{nombre}", appointment.customer_name)
     .replaceAll("{fecha}", appointment.appointment_date)
@@ -513,6 +540,68 @@ function blockOverlaps(
   });
 }
 
+function appointmentFitsInsideRange(
+  appointmentStart: number,
+  appointmentEnd: number,
+  rangeStart: string | null,
+  rangeEnd: string | null
+) {
+  if (!rangeStart || !rangeEnd) {
+    return false;
+  }
+
+  return (
+    appointmentStart >= timeToMinutes(rangeStart) &&
+    appointmentEnd <= timeToMinutes(rangeEnd)
+  );
+}
+
+function appointmentFitsInsideWorkingHour(
+  appointment: BlockCancelledAppointment,
+  workingHour: WorkingHour
+) {
+  if (!workingHour.is_working) {
+    return false;
+  }
+
+  const appointmentStart = timeToMinutes(appointment.appointment_time);
+  const appointmentEnd =
+    appointmentStart + (Number(appointment.duration_minutes) || 30);
+
+  return (
+    appointmentFitsInsideRange(
+      appointmentStart,
+      appointmentEnd,
+      workingHour.morning_start,
+      workingHour.morning_end
+    ) ||
+    appointmentFitsInsideRange(
+      appointmentStart,
+      appointmentEnd,
+      workingHour.afternoon_start,
+      workingHour.afternoon_end
+    )
+  );
+}
+
+function workingHourHasChanged(
+  previousWorkingHour: WorkingHour,
+  nextWorkingHour: WorkingHour
+) {
+  return (
+    previousWorkingHour.is_working !== nextWorkingHour.is_working ||
+    formatAppointmentTime(previousWorkingHour.morning_start ?? "") !==
+      formatAppointmentTime(nextWorkingHour.morning_start ?? "") ||
+    formatAppointmentTime(previousWorkingHour.morning_end ?? "") !==
+      formatAppointmentTime(nextWorkingHour.morning_end ?? "") ||
+    formatAppointmentTime(previousWorkingHour.afternoon_start ?? "") !==
+      formatAppointmentTime(nextWorkingHour.afternoon_start ?? "") ||
+    formatAppointmentTime(previousWorkingHour.afternoon_end ?? "") !==
+      formatAppointmentTime(nextWorkingHour.afternoon_end ?? "") ||
+    Number(previousWorkingHour.slot_minutes) !== Number(nextWorkingHour.slot_minutes)
+  );
+}
+
 export default function BarberPanel() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([]);
@@ -548,6 +637,8 @@ export default function BarberPanel() {
   const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [isLoadingBlockedTimes, setIsLoadingBlockedTimes] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [hasCustomBlockCancellationMessage, setHasCustomBlockCancellationMessage] =
+    useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
   const [historyMessageType, setHistoryMessageType] = useState<"success" | "error">(
     "success"
@@ -558,6 +649,10 @@ export default function BarberPanel() {
   const [historyDateTo, setHistoryDateTo] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   const [scheduleMessage, setScheduleMessage] = useState("");
+  const [pendingScheduleChange, setPendingScheduleChange] =
+    useState<PendingScheduleChange | null>(null);
+  const [scheduleCancelledAppointments, setScheduleCancelledAppointments] =
+    useState<BlockCancelledAppointment[]>([]);
   const [serviceMessage, setServiceMessage] = useState("");
   const [blockMessage, setBlockMessage] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -784,12 +879,15 @@ export default function BarberPanel() {
     setIsLoadingHistory(false);
     setHistoryMessage("");
     setHistoryMessageType("success");
+    setHasCustomBlockCancellationMessage(false);
     setHistoryStatusFilter("all");
     setHistoryDateFrom("");
     setHistoryDateTo("");
     setHistorySearch("");
     setAgendaMessage("");
     setAgendaMessageType("success");
+    setPendingScheduleChange(null);
+    setScheduleCancelledAppointments([]);
     setEditingAppointment(null);
     setEditAvailableHours([]);
     setIsLoadingEditHours(false);
@@ -990,6 +1088,7 @@ export default function BarberPanel() {
       console.error("Error loading business settings:", error);
       setBusinessSettings(defaultBusinessSettings);
       setBusinessForm(defaultBusinessSettings);
+      setHasCustomBlockCancellationMessage(false);
       return;
     }
 
@@ -1027,6 +1126,10 @@ export default function BarberPanel() {
 
     setBusinessSettings(nextBusinessSettings);
     setBusinessForm(nextBusinessSettings);
+    setHasCustomBlockCancellationMessage(
+      typeof data.block_cancellation_message === "string" &&
+        data.block_cancellation_message.trim() !== ""
+    );
   }
 
   function updateBusinessSetting(
@@ -1273,6 +1376,7 @@ export default function BarberPanel() {
 
     setBusinessSettings(nextBusinessSettings);
     setBusinessForm(nextBusinessSettings);
+    setHasCustomBlockCancellationMessage(true);
     setBlockMessage("Mensaje guardado correctamente");
   }
 
@@ -2464,12 +2568,14 @@ export default function BarberPanel() {
       )
     );
     setScheduleMessage("");
+    setPendingScheduleChange(null);
+    setScheduleCancelledAppointments([]);
   }
 
-  async function saveWorkingHour(workingHour: WorkingHour) {
+  async function updateWorkingHourInDatabase(workingHour: WorkingHour) {
     if (!currentBusinessId) {
       setScheduleMessage("No se pudo cargar la barbería.");
-      return;
+      return false;
     }
 
     const { error } = await supabase
@@ -2487,11 +2593,185 @@ export default function BarberPanel() {
 
     if (error) {
       setScheduleMessage("No se pudo actualizar el horario.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function loadOriginalWorkingHour(id: string) {
+    if (!currentBusinessId) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("working_hours")
+      .select(
+        "id, day_of_week, day_name, is_working, morning_start, morning_end, afternoon_start, afternoon_end, slot_minutes"
+      )
+      .eq("id", id)
+      .eq("business_id", currentBusinessId)
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error("Error loading original working hour:", error);
+      return null;
+    }
+
+    return data as WorkingHour;
+  }
+
+  async function findAppointmentsAffectedByWorkingHour(workingHour: WorkingHour) {
+    if (!currentBusinessId) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, duration_minutes"
+      )
+      .eq("business_id", currentBusinessId)
+      .eq("appointment_status", "pending")
+      .gte("appointment_date", formatDateForSupabase(new Date()))
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+
+    if (error) {
+      console.error("Error loading appointments affected by schedule:", error);
+      setScheduleMessage("No se pudieron revisar las citas afectadas.");
+      return null;
+    }
+
+    return ((data ?? []) as BlockCancelledAppointment[])
+      .map((appointment) => ({
+        ...appointment,
+        duration_minutes: Number(appointment.duration_minutes) || 30
+      }))
+      .filter((appointment) => {
+        const appointmentDate = new Date(`${appointment.appointment_date}T00:00:00`);
+
+        return (
+          appointmentDate.getDay() === Number(workingHour.day_of_week) &&
+          !appointmentFitsInsideWorkingHour(appointment, workingHour)
+        );
+      });
+  }
+
+  async function saveWorkingHour(workingHour: WorkingHour) {
+    if (!currentBusinessId) {
+      setScheduleMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    setScheduleCancelledAppointments([]);
+    setPendingScheduleChange(null);
+
+    const originalWorkingHour = await loadOriginalWorkingHour(workingHour.id);
+
+    if (!originalWorkingHour) {
+      setScheduleMessage("No se pudo comprobar el horario actual.");
+      return;
+    }
+
+    if (workingHourHasChanged(originalWorkingHour, workingHour)) {
+      const affectedAppointments =
+        await findAppointmentsAffectedByWorkingHour(workingHour);
+
+      if (affectedAppointments === null) {
+        return;
+      }
+
+      if (affectedAppointments.length > 0) {
+        setPendingScheduleChange({
+          workingHour: { ...workingHour },
+          originalWorkingHour,
+          affectedAppointments
+        });
+        setWorkingHours((currentWorkingHours) =>
+          currentWorkingHours.map((currentWorkingHour) =>
+            currentWorkingHour.id === originalWorkingHour.id
+              ? originalWorkingHour
+              : currentWorkingHour
+          )
+        );
+        setScheduleMessage(
+          `Hay ${affectedAppointments.length} citas pendientes que quedarían fuera del nuevo horario.`
+        );
+        return;
+      }
+    }
+
+    const saved = await updateWorkingHourInDatabase(workingHour);
+
+    if (!saved) {
       return;
     }
 
     setScheduleMessage("Horario actualizado correctamente.");
     await loadWorkingHours();
+  }
+
+  function cancelPendingScheduleChange() {
+    if (pendingScheduleChange) {
+      setWorkingHours((currentWorkingHours) =>
+        currentWorkingHours.map((workingHour) =>
+          workingHour.id === pendingScheduleChange.originalWorkingHour.id
+            ? pendingScheduleChange.originalWorkingHour
+            : workingHour
+        )
+      );
+    }
+
+    setPendingScheduleChange(null);
+    setScheduleCancelledAppointments([]);
+    setScheduleMessage("");
+  }
+
+  async function confirmPendingScheduleChange() {
+    if (!pendingScheduleChange || !currentBusinessId) {
+      return;
+    }
+
+    const saved = await updateWorkingHourInDatabase(
+      pendingScheduleChange.workingHour
+    );
+
+    if (!saved) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        appointment_status: "cancelled",
+        status_updated_at: new Date().toISOString()
+      })
+      .eq("business_id", currentBusinessId)
+      .eq("appointment_status", "pending")
+      .in(
+        "id",
+        pendingScheduleChange.affectedAppointments.map(
+          (appointment) => appointment.id
+        )
+      );
+
+    if (error) {
+      console.error("Error cancelling appointments affected by schedule:", error);
+      setScheduleMessage(
+        "Horario guardado, pero no se pudieron cancelar las citas afectadas."
+      );
+      return;
+    }
+
+    setScheduleCancelledAppointments(pendingScheduleChange.affectedAppointments);
+    setScheduleMessage(
+      `Horario guardado y ${pendingScheduleChange.affectedAppointments.length} citas canceladas automáticamente.`
+    );
+    setPendingScheduleChange(null);
+    await loadWorkingHours();
+    await loadAppointments();
+    await loadAppointmentHistory();
   }
 
   function toggleSection(section: PanelSectionKey) {
@@ -4379,6 +4659,82 @@ export default function BarberPanel() {
             <p className="mt-4 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold">
               {scheduleMessage}
             </p>
+          )}
+
+          {pendingScheduleChange && (
+            <div className="mt-4 space-y-3 rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4">
+              <div className="space-y-3">
+                {pendingScheduleChange.affectedAppointments.map((appointment) => (
+                  <article
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                    key={appointment.id}
+                  >
+                    <div className="space-y-1 text-sm leading-6 text-white/75">
+                      <p className="font-bold text-white">
+                        {appointment.appointment_date} ·{" "}
+                        {formatAppointmentTime(appointment.appointment_time)}
+                      </p>
+                      <p>{appointment.customer_name}</p>
+                      <p>{appointment.service}</p>
+                      <p>Tel: {appointment.customer_phone}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  className="rounded-2xl border border-white/15 px-4 py-3 text-xs font-semibold text-white/75 transition hover:border-white/30 hover:text-white active:scale-[0.98]"
+                  onClick={cancelPendingScheduleChange}
+                  type="button"
+                >
+                  Cancelar cambio
+                </button>
+                <button
+                  className="rounded-2xl bg-barber-gold px-4 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                  onClick={confirmPendingScheduleChange}
+                  type="button"
+                >
+                  Guardar horario y cancelar citas afectadas
+                </button>
+              </div>
+            </div>
+          )}
+
+          {scheduleCancelledAppointments.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {scheduleCancelledAppointments.map((appointment) => (
+                <article
+                  className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4"
+                  key={appointment.id}
+                >
+                  <div className="space-y-1 text-sm leading-6 text-white/75">
+                    <p className="text-base font-bold text-white">
+                      {appointment.appointment_date} ·{" "}
+                      {formatAppointmentTime(appointment.appointment_time)} -{" "}
+                      {appointment.customer_name}
+                    </p>
+                    <p>{appointment.service}</p>
+                    <p>Tel: {appointment.customer_phone}</p>
+                  </div>
+                  <a
+                    className="mt-3 block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                    href={createScheduleChangeCancellationWhatsAppLink(
+                      appointment,
+                      hasCustomBlockCancellationMessage
+                        ? businessSettings.block_cancellation_message
+                        : defaultScheduleChangeCancellationMessage,
+                      businessSettings.business_name ||
+                        defaultBusinessSettings.business_name
+                    )}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Avisar por WhatsApp
+                  </a>
+                </article>
+              ))}
+            </div>
           )}
 
           {isLoadingSchedule ? (
