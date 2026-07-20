@@ -169,7 +169,7 @@ type PanelSectionKey =
   | "schedule";
 
 const defaultBlockCancellationMessage =
-  "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.";
+  "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora}, ha sido cancelada porque la barbería no estará disponible en ese horario.\nDisculpa las molestias.";
 
 const defaultScheduleChangeCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada por un cambio en el horario de la barbería. Disculpa las molestias.";
@@ -310,11 +310,20 @@ function createHistoryWhatsAppLink(
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
-function createBlockCancellationWhatsAppLink(appointment: BlockCancelledAppointment) {
+function createBlockCancellationWhatsAppLink(
+  appointment: BlockCancelledAppointment,
+  messageTemplate: string | null | undefined,
+  businessName: string
+) {
   const phone = normalizeWhatsAppPhone(appointment.customer_phone);
-  const message = `Hola ${appointment.customer_name}, sentimos avisarte de que tu cita del ${appointment.appointment_date} a las ${formatAppointmentTime(
-    appointment.appointment_time
-  )} para ${appointment.service} ha sido cancelada porque la barbería ha bloqueado ese horario. Escríbenos y te damos una nueva cita.`;
+  const template =
+    messageTemplate?.trim() || defaultBlockCancellationMessage;
+  const message = template
+    .replaceAll("{nombre}", appointment.customer_name)
+    .replaceAll("{fecha}", formatReadableAppointmentDate(appointment.appointment_date))
+    .replaceAll("{hora}", formatAppointmentTime(appointment.appointment_time))
+    .replaceAll("{servicio}", appointment.service)
+    .replaceAll("{barberia}", businessName);
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
@@ -339,6 +348,20 @@ function createScheduleChangeCancellationWhatsAppLink(
 
 function formatAppointmentTime(time: string) {
   return time.slice(0, 5);
+}
+
+function formatReadableAppointmentDate(dateValue: string) {
+  const date = new Date(`${dateValue}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateValue;
+  }
+
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
 }
 
 function formatDateForSupabase(date: Date) {
@@ -4565,7 +4588,12 @@ export default function BarberPanel() {
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <a
                       className="block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
-                      href={createBlockCancellationWhatsAppLink(appointment)}
+                      href={createBlockCancellationWhatsAppLink(
+                        appointment,
+                        businessSettings.block_cancellation_message,
+                        businessSettings.business_name ||
+                          defaultBusinessSettings.business_name
+                      )}
                       rel="noreferrer"
                       target="_blank"
                     >
@@ -4617,7 +4645,12 @@ export default function BarberPanel() {
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <a
                         className="block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
-                        href={createBlockCancellationWhatsAppLink(appointment)}
+                        href={createBlockCancellationWhatsAppLink(
+                          appointment,
+                          businessSettings.block_cancellation_message,
+                          businessSettings.business_name ||
+                            defaultBusinessSettings.business_name
+                        )}
                         rel="noreferrer"
                         target="_blank"
                       >
