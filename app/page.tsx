@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -198,8 +198,8 @@ const defaultBusinessSettings: BusinessSettings = {
   slogan: "Reserva tu corte en menos de 30 segundos",
   whatsapp_phone: "34675070848",
   whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
-  instagram_url: "https://www.instagram.com/peluqueria_pablos?igsh=MWdrbXhoY3Rvbmp2Mw==",
-  address: "Calle San Francisco,13, 21800, Moguer (Huelva)",
+  instagram_url: "",
+  address: "",
   main_button_text: "Reservar cita",
   booking_limit_enabled: true,
   booking_limit_value: 31,
@@ -635,6 +635,26 @@ function getBusinessAddress(business: Business) {
   return business.address?.trim() || "";
 }
 
+function hasText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getInstagramUrl(value: unknown) {
+  const instagramUrl = normalizeOptionalText(value);
+
+  if (!instagramUrl) {
+    return "";
+  }
+
+  return /^https?:\/\//i.test(instagramUrl)
+    ? instagramUrl
+    : `https://${instagramUrl}`;
+}
+
 export default function Home() {
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
@@ -701,24 +721,39 @@ export default function Home() {
   const [directBusinessSlug, setDirectBusinessSlug] = useState<string | null>(
     null
   );
+  const currentBusinessIdRef = useRef<string | null>(null);
+  const instagramUrl = getInstagramUrl(businessSettings.instagram_url);
+  const address = normalizeOptionalText(businessSettings.address);
 
   const secondaryLinks = [
-    {
-      label: "WhatsApp",
-      href: `https://wa.me/${businessSettings.whatsapp_phone}?text=${encodeURIComponent(
-        businessSettings.whatsapp_message
-      )}`
-    },
-    {
-      label: "Instagram",
-      href: businessSettings.instagram_url
-    },
-    {
-      label: "Cómo llegar",
-      href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-        businessSettings.address
-      )}`
-    }
+    ...(hasText(businessSettings.whatsapp_phone)
+      ? [
+          {
+            label: "WhatsApp",
+            href: `https://wa.me/${businessSettings.whatsapp_phone}?text=${encodeURIComponent(
+              businessSettings.whatsapp_message
+            )}`
+          }
+        ]
+      : []),
+    ...(hasText(instagramUrl)
+      ? [
+          {
+            label: "Instagram",
+            href: instagramUrl
+          }
+        ]
+      : []),
+    ...(hasText(address)
+      ? [
+          {
+            label: "Cómo llegar",
+            href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+              address
+            )}`
+          }
+        ]
+      : [])
   ];
 
   const maxReservableDate = getMaxReservableDate(businessSettings);
@@ -791,6 +826,10 @@ export default function Home() {
   const isDirectBusinessEntry = directBusinessSlug !== null && directBusinessSlug !== "";
 
   useEffect(() => {
+    currentBusinessIdRef.current = currentBusinessId;
+  }, [currentBusinessId]);
+
+  useEffect(() => {
     initializeBusinessFromUrl();
   }, []);
 
@@ -799,7 +838,7 @@ export default function Home() {
       return;
     }
 
-    loadBusinessSettings();
+    loadBusinessSettings(currentBusinessId);
     loadServices();
     loadWorkingHours();
     loadBlockedTimes();
@@ -963,6 +1002,7 @@ export default function Home() {
   function prepareBusinessSelection(business: Business) {
     setCurrentBusiness(business);
     setCurrentBusinessId(business.id);
+    currentBusinessIdRef.current = business.id;
     setBusinessSettings(defaultBusinessSettings);
     setServices([]);
     setWorkingHours([]);
@@ -1108,6 +1148,7 @@ export default function Home() {
   function changeBusiness() {
     setCurrentBusiness(null);
     setCurrentBusinessId(null);
+    currentBusinessIdRef.current = null;
     setBusinessSettings(defaultBusinessSettings);
     setServices([]);
     setWorkingHours([]);
@@ -1126,8 +1167,8 @@ export default function Home() {
     loadBusinesses();
   }
 
-  async function loadBusinessSettings() {
-    if (!currentBusinessId) {
+  async function loadBusinessSettings(businessId = currentBusinessId) {
+    if (!businessId) {
       return;
     }
 
@@ -1136,7 +1177,7 @@ export default function Home() {
       .select(
         "business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
-      .eq("business_id", currentBusinessId)
+      .eq("business_id", businessId)
       .limit(1)
       .maybeSingle();
 
@@ -1146,14 +1187,18 @@ export default function Home() {
       return;
     }
 
+    if (data.business_id !== currentBusinessIdRef.current) {
+      return;
+    }
+
     const nextBusinessSettings = {
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
       whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
       whatsapp_message:
         data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
-      instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
-      address: data.address || defaultBusinessSettings.address,
+      instagram_url: normalizeOptionalText(data.instagram_url),
+      address: normalizeOptionalText(data.address),
       main_button_text:
         data.main_button_text || defaultBusinessSettings.main_button_text,
       booking_limit_enabled:
@@ -1175,7 +1220,12 @@ export default function Home() {
     };
 
     if (process.env.NODE_ENV === "development") {
-      console.log("Booking settings loaded:", nextBusinessSettings);
+      console.log("Booking settings loaded:", {
+        slug: currentBusiness?.slug ?? "",
+        business_id: data.business_id,
+        instagram_url: nextBusinessSettings.instagram_url,
+        address: nextBusinessSettings.address
+      });
     }
 
     setBusinessSettings(nextBusinessSettings);
@@ -1340,6 +1390,45 @@ export default function Home() {
   }
 
   async function checkCustomerAdminAccess() {
+    const {
+      data: { user },
+      error: userError
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      if (userError) {
+        console.error("Error checking barber permissions:", userError);
+      }
+
+      setIsCustomerAdmin(false);
+      return false;
+    }
+
+    let businessUserResult = await supabase
+      .from("business_users")
+      .select("business_id")
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!businessUserResult.data && user.email) {
+      businessUserResult = await supabase
+        .from("business_users")
+        .select("business_id")
+        .eq("email", user.email)
+        .limit(1)
+        .maybeSingle();
+    }
+
+    if (businessUserResult.error) {
+      console.error("Error checking business user:", businessUserResult.error);
+    }
+
+    if (businessUserResult.data) {
+      setIsCustomerAdmin(true);
+      return true;
+    }
+
     const { data, error } = await supabase.rpc("is_admin");
 
     if (error) {
@@ -2394,6 +2483,13 @@ export default function Home() {
               </span>
             </button>
           </div>
+
+          <Link
+            className="mt-6 block text-center text-xs font-semibold text-white/45 transition hover:text-barber-gold"
+            href="/registro-barberia"
+          >
+            Registrar mi barbería
+          </Link>
         </section>
       </main>
     );
@@ -2419,8 +2515,16 @@ export default function Home() {
             Área barbero
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
-            El acceso de barbero lo crea el administrador de BarberFlow.
+            Inicia sesión con la cuenta propietaria o registra tu barbería si
+            todavía no tienes acceso.
           </p>
+
+          <Link
+            className="mt-4 inline-block text-xs font-semibold text-barber-gold transition hover:text-[#e7b65f]"
+            href="/registro-barberia"
+          >
+            Registrar mi barbería
+          </Link>
 
           {barberMessage && (
             <p

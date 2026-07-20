@@ -180,8 +180,8 @@ const defaultBusinessSettings: BusinessSettings = {
   slogan: "Reserva tu corte en menos de 30 segundos",
   whatsapp_phone: "34675070848",
   whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
-  instagram_url: "https://www.instagram.com/peluqueria_pablos?igsh=MWdrbXhoY3Rvbmp2Mw==",
-  address: "Calle San Francisco,13, 21800, Moguer (Huelva)",
+  instagram_url: "",
+  address: "",
   main_button_text: "Reservar cita",
   block_cancellation_message: defaultBlockCancellationMessage,
   booking_limit_enabled: true,
@@ -958,19 +958,6 @@ export default function BarberPanel() {
     setPanelAccessDenied(false);
     setPanelBusinessMissing(false);
 
-    const { data, error } = await supabase.rpc("is_admin");
-
-    if (error || data !== true) {
-      if (error) {
-        console.error("Error checking admin permissions:", error);
-      }
-
-      clearPanelData(true);
-      setPanelAccessDenied(true);
-      setIsCheckingAdmin(false);
-      return;
-    }
-
     const {
       data: { user },
       error: userError
@@ -986,8 +973,20 @@ export default function BarberPanel() {
     const assignedBusiness = await loadAssignedBusiness(user.id, user.email ?? "");
 
     if (!assignedBusiness) {
-      clearPanelData();
-      setPanelBusinessMissing(true);
+      const { data: isAdmin, error: adminError } = await supabase.rpc("is_admin");
+
+      if (adminError) {
+        console.error("Error checking admin permissions:", adminError);
+      }
+
+      clearPanelData(isAdmin !== true);
+
+      if (isAdmin === true) {
+        setPanelBusinessMissing(true);
+      } else {
+        setPanelAccessDenied(true);
+      }
+
       setIsCheckingAdmin(false);
       return;
     }
@@ -1144,8 +1143,9 @@ export default function BarberPanel() {
       whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
       whatsapp_message:
         data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
-      instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
-      address: data.address || defaultBusinessSettings.address,
+      instagram_url:
+        typeof data.instagram_url === "string" ? data.instagram_url : "",
+      address: typeof data.address === "string" ? data.address : "",
       main_button_text:
         data.main_button_text || defaultBusinessSettings.main_button_text,
       block_cancellation_message:
@@ -1197,8 +1197,9 @@ export default function BarberPanel() {
       whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
       whatsapp_message:
         data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
-      instagram_url: data.instagram_url || defaultBusinessSettings.instagram_url,
-      address: data.address || defaultBusinessSettings.address,
+      instagram_url:
+        typeof data.instagram_url === "string" ? data.instagram_url : "",
+      address: typeof data.address === "string" ? data.address : "",
       main_button_text:
         data.main_button_text || defaultBusinessSettings.main_button_text,
       block_cancellation_message:

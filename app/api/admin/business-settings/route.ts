@@ -72,10 +72,6 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (!adminUser) {
-    return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-  }
-
   const body = await request.json();
   let businessId = typeof body.business_id === "string" ? body.business_id : "";
 
@@ -146,7 +142,7 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (!businessUserResult.data) {
+  if (!businessUserResult.data && !adminUser) {
     return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   }
 
