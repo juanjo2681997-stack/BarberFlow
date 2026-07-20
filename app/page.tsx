@@ -130,6 +130,7 @@ type CustomerAppointment = {
   customer_name: string;
   customer_phone: string;
   reminder_status: string | null;
+  status: string | null;
 };
 
 type CustomerAuthForm = {
@@ -1654,10 +1655,11 @@ export default function Home() {
     const { data, error } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status"
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status, status"
       )
       .eq("customer_user_id", userId)
       .eq("business_id", currentBusinessId)
+      .or("status.is.null,status.neq.cancelled")
       .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });

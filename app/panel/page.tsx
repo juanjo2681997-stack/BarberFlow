@@ -18,6 +18,10 @@ type Appointment = {
   reminder_error: string | null;
   appointment_status: AppointmentStatus;
   status_updated_at: string | null;
+  status: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  whatsapp_cancel_notified_at: string | null;
 };
 
 type AppointmentStatus = "pending" | "completed" | "cancelled" | "no_show";
@@ -85,6 +89,10 @@ type BlockCancelledAppointment = {
   customer_name: string;
   customer_phone: string;
   duration_minutes: number;
+  status: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  whatsapp_cancel_notified_at: string | null;
 };
 
 type PendingScheduleChange = {
@@ -210,6 +218,16 @@ const appointmentStatusActions: Array<{
   { status: "pending", label: "Pendiente" }
 ];
 
+function isAppointmentCancelled(appointment: {
+  appointment_status?: string | null;
+  status?: string | null;
+}) {
+  return (
+    appointment.appointment_status === "cancelled" ||
+    appointment.status === "cancelled"
+  );
+}
+
 const initialManualAppointmentForm: ManualAppointmentForm = {
   customer_name: "",
   customer_phone: "",
@@ -292,19 +310,11 @@ function createHistoryWhatsAppLink(
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
-function createBlockCancellationWhatsAppLink(
-  appointment: BlockCancelledAppointment,
-  messageTemplate: string,
-  businessName: string
-) {
+function createBlockCancellationWhatsAppLink(appointment: BlockCancelledAppointment) {
   const phone = normalizeWhatsAppPhone(appointment.customer_phone);
-  const template = messageTemplate.trim() || defaultBlockCancellationMessage;
-  const message = template
-    .replaceAll("{nombre}", appointment.customer_name)
-    .replaceAll("{fecha}", appointment.appointment_date)
-    .replaceAll("{hora}", formatAppointmentTime(appointment.appointment_time))
-    .replaceAll("{servicio}", appointment.service)
-    .replaceAll("{barberia}", businessName);
+  const message = `Hola ${appointment.customer_name}, sentimos avisarte de que tu cita del ${appointment.appointment_date} a las ${formatAppointmentTime(
+    appointment.appointment_time
+  )} para ${appointment.service} ha sido cancelada porque la barbería ha bloqueado ese horario. Escríbenos y te damos una nueva cita.`;
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
@@ -605,6 +615,8 @@ function workingHourHasChanged(
 export default function BarberPanel() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([]);
+  const [pendingCancellationNotifications, setPendingCancellationNotifications] =
+    useState<BlockCancelledAppointment[]>([]);
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [blockedTimes, setBlockedTimes] = useState<BlockedTime[]>([]);
@@ -729,7 +741,7 @@ export default function BarberPanel() {
   const tomorrowAppointments = appointments.filter(
     (appointment) =>
       appointment.appointment_date === tomorrow &&
-      appointment.appointment_status !== "cancelled"
+      !isAppointmentCancelled(appointment)
   );
   const agendaCalendarDays = getAgendaCalendarDays(
     agendaCalendarMonth,
@@ -746,7 +758,7 @@ export default function BarberPanel() {
   const agendaSlotMinutes = Number(agendaWorkingHour?.slot_minutes) || 30;
   const agendaSlots = getAvailableHours(agendaWorkingHour);
   const activeAppointments = appointments.filter(
-    (appointment) => appointment.appointment_status !== "cancelled"
+    (appointment) => !isAppointmentCancelled(appointment)
   );
   const agendaAppointments = activeAppointments.filter(
     (appointment) => appointment.appointment_date === agendaDate
@@ -787,6 +799,13 @@ export default function BarberPanel() {
       return matchesStatus && matchesDateFrom && matchesDateTo && matchesSearch;
     }
   );
+  const visiblePendingCancellationNotifications =
+    pendingCancellationNotifications.filter(
+      (appointment) =>
+        !blockCancelledAppointments.some(
+          (cancelledAppointment) => cancelledAppointment.id === appointment.id
+        )
+    );
 
   useEffect(() => {
     checkSession();
@@ -852,6 +871,7 @@ export default function BarberPanel() {
   function loadPanelData(businessId: string) {
     loadAppointments(businessId);
     loadAppointmentHistory(businessId);
+    loadPendingCancellationNotifications(businessId);
     loadBusinessSettings(true, businessId);
     loadWorkingHours(businessId);
     loadServices(businessId);
@@ -868,6 +888,7 @@ export default function BarberPanel() {
     setPublicBookingLinkMessage("");
     setAppointments([]);
     setHistoryAppointments([]);
+    setPendingCancellationNotifications([]);
     setWorkingHours([]);
     setServices([]);
     setBlockedTimes([]);
@@ -1392,7 +1413,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at, status, cancelled_at, cancellation_reason, whatsapp_cancel_notified_at"
       )
       .eq("business_id", businessId)
       .order("appointment_date", { ascending: true })
@@ -1427,7 +1448,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at"
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at, status, cancelled_at, cancellation_reason, whatsapp_cancel_notified_at"
       )
       .eq("business_id", businessId)
       .order("appointment_date", { ascending: false })
@@ -1448,6 +1469,37 @@ export default function BarberPanel() {
         appointment_status: normalizeAppointmentStatus(
           appointment.appointment_status
         )
+      }))
+    );
+  }
+
+  async function loadPendingCancellationNotifications(
+    businessId = currentBusinessId
+  ) {
+    if (!businessId) {
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, duration_minutes, status, cancelled_at, cancellation_reason, whatsapp_cancel_notified_at"
+      )
+      .eq("business_id", businessId)
+      .eq("status", "cancelled")
+      .is("whatsapp_cancel_notified_at", null)
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+
+    if (error) {
+      console.error("Error loading pending cancellation notifications:", error);
+      return;
+    }
+
+    setPendingCancellationNotifications(
+      ((data ?? []) as BlockCancelledAppointment[]).map((appointment) => ({
+        ...appointment,
+        duration_minutes: Number(appointment.duration_minutes) || 30
       }))
     );
   }
@@ -2402,11 +2454,12 @@ export default function BarberPanel() {
     const { data: pendingAppointments, error: appointmentsError } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, duration_minutes"
+        "id, service, appointment_date, appointment_time, customer_name, customer_phone, duration_minutes, status, cancelled_at, cancellation_reason, whatsapp_cancel_notified_at"
       )
       .eq("business_id", currentBusinessId)
       .eq("appointment_date", newBlockedTime.block_date)
       .eq("appointment_status", "pending")
+      .or("status.is.null,status.neq.cancelled")
       .order("appointment_time", { ascending: true });
 
     if (appointmentsError) {
@@ -2436,14 +2489,23 @@ export default function BarberPanel() {
         );
       });
 
+    const cancellationReason =
+      newBlockedTime.reason.trim() || "Horario bloqueado por la barbería";
+    const cancelledAt = new Date().toISOString();
+
     if (affectedAppointments.length > 0) {
       const { error: cancelError } = await supabase
         .from("appointments")
         .update({
+          status: "cancelled",
+          cancelled_at: cancelledAt,
+          cancellation_reason: cancellationReason,
+          whatsapp_cancel_notified_at: null,
           appointment_status: "cancelled",
-          status_updated_at: new Date().toISOString()
+          status_updated_at: cancelledAt
         })
         .eq("business_id", currentBusinessId)
+        .or("status.is.null,status.neq.cancelled")
         .in(
           "id",
           affectedAppointments.map((appointment) => appointment.id)
@@ -2459,6 +2521,14 @@ export default function BarberPanel() {
       }
     }
 
+    const cancelledAppointments = affectedAppointments.map((appointment) => ({
+      ...appointment,
+      status: "cancelled",
+      cancelled_at: cancelledAt,
+      cancellation_reason: cancellationReason,
+      whatsapp_cancel_notified_at: null
+    }));
+
     setNewBlockedTime({
       block_date: "",
       is_full_day: true,
@@ -2466,15 +2536,16 @@ export default function BarberPanel() {
       end_time: "",
       reason: ""
     });
-    setBlockCancelledAppointments(affectedAppointments);
+    setBlockCancelledAppointments(cancelledAppointments);
     setBlockMessage(
       affectedAppointments.length > 0
-        ? `Se han cancelado automáticamente ${affectedAppointments.length} citas afectadas por este bloqueo.`
+        ? `Bloqueo creado. Se han cancelado ${affectedAppointments.length} citas. Debes avisar a los clientes por WhatsApp.`
         : "Bloqueo creado correctamente. No había citas afectadas."
     );
     await loadBlockedTimes();
     await loadAppointments();
     await loadAppointmentHistory();
+    await loadPendingCancellationNotifications();
   }
 
   async function deleteBlockedTime(id: string) {
@@ -2496,6 +2567,40 @@ export default function BarberPanel() {
 
     setBlockMessage("Bloqueo eliminado correctamente.");
     await loadBlockedTimes();
+  }
+
+  async function markCancellationAsNotified(appointmentId: string) {
+    if (!currentBusinessId) {
+      setBlockMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    const notifiedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        whatsapp_cancel_notified_at: notifiedAt
+      })
+      .eq("id", appointmentId)
+      .eq("business_id", currentBusinessId);
+
+    if (error) {
+      console.error("Error marking cancellation as notified:", error);
+      setBlockMessage("No se pudo marcar el cliente como avisado.");
+      return;
+    }
+
+    setBlockCancelledAppointments((currentAppointments) =>
+      currentAppointments.map((appointment) =>
+        appointment.id === appointmentId
+          ? { ...appointment, whatsapp_cancel_notified_at: notifiedAt }
+          : appointment
+      )
+    );
+    setPendingCancellationNotifications((currentAppointments) =>
+      currentAppointments.filter((appointment) => appointment.id !== appointmentId)
+    );
+    setBlockMessage("Cliente marcado como avisado.");
   }
 
   function createReminderWhatsAppLink(appointment: Appointment) {
@@ -4451,24 +4556,86 @@ export default function BarberPanel() {
                     </p>
                     <p>{appointment.service}</p>
                     <p>Tel: {appointment.customer_phone}</p>
+                    <p className="font-semibold text-yellow-100">
+                      {appointment.whatsapp_cancel_notified_at
+                        ? "Cliente avisado por WhatsApp"
+                        : "Pendiente de avisar por WhatsApp"}
+                    </p>
                   </div>
-                  <a
-                    className="mt-3 block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
-                    href={createBlockCancellationWhatsAppLink(
-                      appointment,
-                      businessSettings.block_cancellation_message,
-                      businessSettings.business_name ||
-                        defaultBusinessSettings.business_name
-                    )}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    Avisar por WhatsApp
-                  </a>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <a
+                      className="block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                      href={createBlockCancellationWhatsAppLink(appointment)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Enviar WhatsApp
+                    </a>
+                    <button
+                      className="rounded-2xl border border-barber-gold/40 px-4 py-3 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={appointment.whatsapp_cancel_notified_at !== null}
+                      onClick={() => markCancellationAsNotified(appointment.id)}
+                      type="button"
+                    >
+                      Marcar como avisado
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
           )}
+
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-lg font-bold text-white">
+              Cancelaciones pendientes de avisar
+            </h3>
+            {visiblePendingCancellationNotifications.length === 0 ? (
+              <p className="mt-3 text-sm text-white/60">
+                No hay clientes pendientes de avisar por WhatsApp.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {visiblePendingCancellationNotifications.map((appointment) => (
+                  <article
+                    className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-4"
+                    key={appointment.id}
+                  >
+                    <div className="space-y-1 text-sm leading-6 text-white/75">
+                      <p className="text-base font-bold text-white">
+                        {appointment.customer_name}
+                      </p>
+                      <p>{appointment.customer_phone}</p>
+                      <p>{appointment.service}</p>
+                      <p>
+                        {appointment.appointment_date} ·{" "}
+                        {formatAppointmentTime(appointment.appointment_time)}
+                      </p>
+                      <p className="font-semibold text-yellow-100">
+                        Pendiente de avisar por WhatsApp
+                      </p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <a
+                        className="block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                        href={createBlockCancellationWhatsAppLink(appointment)}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Enviar WhatsApp
+                      </a>
+                      <button
+                        className="rounded-2xl border border-barber-gold/40 px-4 py-3 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
+                        onClick={() => markCancellationAsNotified(appointment.id)}
+                        type="button"
+                      >
+                        Marcar como avisado
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
