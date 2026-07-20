@@ -891,7 +891,8 @@ export default function BarberPanel() {
     setIsCheckingAdmin(false);
   }
 
-  function loadPanelData(businessId: string) {
+  async function loadPanelData(businessId: string) {
+    await cleanupExpiredBlockedTimes(businessId);
     loadAppointments(businessId);
     loadAppointmentHistory(businessId);
     loadPendingCancellationNotifications(businessId);
@@ -1001,7 +1002,7 @@ export default function BarberPanel() {
     setIsAuthenticated(true);
     setPanelAccessDenied(false);
     setIsCheckingAdmin(false);
-    loadPanelData(assignedBusiness.businessId);
+    await loadPanelData(assignedBusiness.businessId);
   }
 
   async function loadAssignedBusiness(userId: string, userEmail: string) {
@@ -1603,6 +1604,38 @@ export default function BarberPanel() {
     }
 
     setBlockedTimes((data ?? []) as BlockedTime[]);
+  }
+
+  async function cleanupExpiredBlockedTimes(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
+    const currentTimeInfo = getCurrentTimeInfo();
+    const currentTime = minutesToTime(currentTimeInfo.minutes);
+
+    const { error: pastDateError } = await supabase
+      .from("blocked_times")
+      .delete()
+      .eq("business_id", businessId)
+      .lt("block_date", currentTimeInfo.today);
+
+    if (pastDateError) {
+      console.error("Error cleaning expired blocked times:", pastDateError);
+      return;
+    }
+
+    const { error: todayError } = await supabase
+      .from("blocked_times")
+      .delete()
+      .eq("business_id", businessId)
+      .eq("block_date", currentTimeInfo.today)
+      .not("end_time", "is", null)
+      .lte("end_time", currentTime);
+
+    if (todayError) {
+      console.error("Error cleaning expired blocked times:", todayError);
+    }
   }
 
   async function loadWorkingHours(businessId = currentBusinessId) {
@@ -2490,6 +2523,7 @@ export default function BarberPanel() {
       setBlockMessage(
         "Bloqueo creado correctamente, pero no se pudieron revisar las citas afectadas."
       );
+      await cleanupExpiredBlockedTimes();
       await loadBlockedTimes();
       return;
     }
@@ -2539,6 +2573,7 @@ export default function BarberPanel() {
         setBlockMessage(
           "Bloqueo creado correctamente, pero no se pudieron cancelar las citas afectadas."
         );
+        await cleanupExpiredBlockedTimes();
         await loadBlockedTimes();
         return;
       }
@@ -2565,6 +2600,7 @@ export default function BarberPanel() {
         ? `Bloqueo creado. Se han cancelado ${affectedAppointments.length} citas. Debes avisar a los clientes por WhatsApp.`
         : "Bloqueo creado correctamente. No había citas afectadas."
     );
+    await cleanupExpiredBlockedTimes();
     await loadBlockedTimes();
     await loadAppointments();
     await loadAppointmentHistory();
@@ -2589,6 +2625,7 @@ export default function BarberPanel() {
     }
 
     setBlockMessage("Bloqueo eliminado correctamente.");
+    await cleanupExpiredBlockedTimes();
     await loadBlockedTimes();
   }
 
@@ -2624,6 +2661,40 @@ export default function BarberPanel() {
       currentAppointments.filter((appointment) => appointment.id !== appointmentId)
     );
     setBlockMessage("Cliente marcado como avisado.");
+  }
+
+  async function markCancellationWhatsAppAsSent(appointmentId: string) {
+    if (!currentBusinessId) {
+      setBlockMessage("Se abrió WhatsApp, pero no se pudo marcar como avisado.");
+      return;
+    }
+
+    const notifiedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        whatsapp_cancel_notified_at: notifiedAt
+      })
+      .eq("id", appointmentId)
+      .eq("business_id", currentBusinessId);
+
+    if (error) {
+      console.error("Error marking cancellation WhatsApp as sent:", error);
+      setBlockMessage("Se abrió WhatsApp, pero no se pudo marcar como avisado.");
+      return;
+    }
+
+    setBlockCancelledAppointments((currentAppointments) =>
+      currentAppointments.map((appointment) =>
+        appointment.id === appointmentId
+          ? { ...appointment, whatsapp_cancel_notified_at: notifiedAt }
+          : appointment
+      )
+    );
+    setPendingCancellationNotifications((currentAppointments) =>
+      currentAppointments.filter((appointment) => appointment.id !== appointmentId)
+    );
+    setBlockMessage("WhatsApp abierto y cliente marcado como avisado.");
   }
 
   function createReminderWhatsAppLink(appointment: Appointment) {
@@ -4594,6 +4665,7 @@ export default function BarberPanel() {
                         businessSettings.business_name ||
                           defaultBusinessSettings.business_name
                       )}
+                      onClick={() => markCancellationWhatsAppAsSent(appointment.id)}
                       rel="noreferrer"
                       target="_blank"
                     >
@@ -4651,6 +4723,7 @@ export default function BarberPanel() {
                           businessSettings.business_name ||
                             defaultBusinessSettings.business_name
                         )}
+                        onClick={() => markCancellationWhatsAppAsSent(appointment.id)}
                         rel="noreferrer"
                         target="_blank"
                       >

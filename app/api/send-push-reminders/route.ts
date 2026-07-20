@@ -22,6 +22,8 @@ type BusinessSettingsRow = {
   business_name: string | null;
 };
 
+type SupabaseAdminClient = NonNullable<ReturnType<typeof getAdminClient>>;
+
 function formatDateForSupabase(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -41,6 +43,26 @@ function getTomorrowDate() {
   return formatDateForSupabase(tomorrow);
 }
 
+function getMadridCurrentDateTime() {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  });
+  const parts = formatter.formatToParts(new Date());
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+
+  return {
+    today: `${value("year")}-${value("month")}-${value("day")}`,
+    currentTime: `${value("hour")}:${value("minute")}`
+  };
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -53,7 +75,7 @@ function getAdminClient() {
 }
 
 async function markReminder(
-  supabase: NonNullable<ReturnType<typeof getAdminClient>>,
+  supabase: SupabaseAdminClient,
   appointmentId: string,
   businessId: string | null,
   status: "sent" | "failed",
@@ -75,6 +97,49 @@ async function markReminder(
   await query;
 }
 
+async function cleanupExpiredBlockedTimes(supabase: SupabaseAdminClient) {
+  const { today, currentTime } = getMadridCurrentDateTime();
+
+  const { error: pastDateError, count: pastDateCount } = await supabase
+    .from("blocked_times")
+    .delete({ count: "exact" })
+    .lt("block_date", today);
+
+  if (pastDateError) {
+    console.error("Error cleaning expired blocked times:", pastDateError);
+    return {
+      deleted: 0,
+      today,
+      currentTime,
+      error: pastDateError.message
+    };
+  }
+
+  const { error: todayError, count: todayCount } = await supabase
+    .from("blocked_times")
+    .delete({ count: "exact" })
+    .eq("block_date", today)
+    .not("end_time", "is", null)
+    .lte("end_time", currentTime);
+
+  if (todayError) {
+    console.error("Error cleaning expired blocked times:", todayError);
+    return {
+      deleted: pastDateCount ?? 0,
+      today,
+      currentTime,
+      error: todayError.message
+    };
+  }
+
+  return {
+    deleted: (pastDateCount ?? 0) + (todayCount ?? 0),
+    today,
+    currentTime,
+    error: null
+  };
+}
+
 async function handleSendPushReminders(request: Request) {
   const allowedSecrets = [
     process.env.PUSH_REMINDER_SECRET,
@@ -93,13 +158,25 @@ async function handleSendPushReminders(request: Request) {
   }
 
   const supabase = getAdminClient();
+
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Faltan variables de entorno de Supabase." },
+      { status: 500 }
+    );
+  }
+
+  const cleanupResult = await cleanupExpiredBlockedTimes(supabase);
   const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
   const vapidSubject = process.env.VAPID_SUBJECT;
 
-  if (!supabase || !vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
     return NextResponse.json(
-      { error: "Faltan variables de entorno para enviar notificaciones." },
+      {
+        error: "Faltan variables de entorno para enviar notificaciones.",
+        cleanup: cleanupResult
+      },
       { status: 500 }
     );
   }
@@ -204,7 +281,7 @@ async function handleSendPushReminders(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, date: tomorrow, results });
+  return NextResponse.json({ ok: true, date: tomorrow, cleanup: cleanupResult, results });
 }
 
 export async function GET(request: Request) {
