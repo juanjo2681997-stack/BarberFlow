@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type Appointment = {
@@ -147,6 +147,8 @@ type BusinessUserAssignment = {
         slug: string;
         plan_status: string | null;
         public_booking_enabled: boolean | null;
+        profile_image_url: string | null;
+        cover_image_url: string | null;
       }
     | {
         id: string;
@@ -154,6 +156,8 @@ type BusinessUserAssignment = {
         slug: string;
         plan_status: string | null;
         public_booking_enabled: boolean | null;
+        profile_image_url: string | null;
+        cover_image_url: string | null;
       }[]
     | null;
 };
@@ -284,6 +288,10 @@ function normalizeWhatsAppPhone(phone: string) {
   }
 
   return cleanPhone;
+}
+
+function getBusinessInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "B";
 }
 
 function createAppointmentWhatsAppLink(
@@ -656,12 +664,20 @@ export default function BarberPanel() {
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
   const [currentBusinessName, setCurrentBusinessName] = useState("");
   const [currentBusinessSlug, setCurrentBusinessSlug] = useState("");
+  const [currentBusinessProfileImageUrl, setCurrentBusinessProfileImageUrl] =
+    useState("");
   const [currentBusinessPlanStatus, setCurrentBusinessPlanStatus] = useState<
     string | null
   >(null);
   const [currentBusinessPublicBookingEnabled, setCurrentBusinessPublicBookingEnabled] =
     useState<boolean | null>(null);
   const [publicBookingLinkMessage, setPublicBookingLinkMessage] = useState("");
+  const [businessImageFile, setBusinessImageFile] = useState<File | null>(null);
+  const [businessImageMessage, setBusinessImageMessage] = useState("");
+  const [businessImageMessageType, setBusinessImageMessageType] = useState<
+    "success" | "error"
+  >("success");
+  const [isUploadingBusinessImage, setIsUploadingBusinessImage] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -907,9 +923,14 @@ export default function BarberPanel() {
     setCurrentBusinessId(null);
     setCurrentBusinessName("");
     setCurrentBusinessSlug("");
+    setCurrentBusinessProfileImageUrl("");
     setCurrentBusinessPlanStatus(null);
     setCurrentBusinessPublicBookingEnabled(null);
     setPublicBookingLinkMessage("");
+    setBusinessImageFile(null);
+    setBusinessImageMessage("");
+    setBusinessImageMessageType("success");
+    setIsUploadingBusinessImage(false);
     setAppointments([]);
     setHistoryAppointments([]);
     setPendingCancellationNotifications([]);
@@ -994,6 +1015,7 @@ export default function BarberPanel() {
     setCurrentBusinessId(assignedBusiness.businessId);
     setCurrentBusinessName(assignedBusiness.businessName);
     setCurrentBusinessSlug(assignedBusiness.businessSlug);
+    setCurrentBusinessProfileImageUrl(assignedBusiness.profileImageUrl);
     setCurrentBusinessPlanStatus(assignedBusiness.planStatus);
     setCurrentBusinessPublicBookingEnabled(
       assignedBusiness.publicBookingEnabled
@@ -1006,7 +1028,7 @@ export default function BarberPanel() {
 
   async function loadAssignedBusiness(userId: string, userEmail: string) {
     const selectQuery =
-      "business_id, role, businesses(id,name,slug,plan_status,public_booking_enabled)";
+      "business_id, role, businesses(id,name,slug,plan_status,public_booking_enabled,profile_image_url,cover_image_url)";
     let result = await supabase
       .from("business_users")
       .select(selectQuery)
@@ -1041,7 +1063,9 @@ export default function BarberPanel() {
     if (!business?.slug) {
       const { data: businessData, error: businessError } = await supabase
         .from("businesses")
-        .select("id, name, slug, plan_status, public_booking_enabled")
+        .select(
+          "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
+        )
         .eq("id", assignment.business_id)
         .maybeSingle();
 
@@ -1054,6 +1078,7 @@ export default function BarberPanel() {
         businessId: assignment.business_id,
         businessName: businessData.name ?? "",
         businessSlug: businessData.slug ?? "",
+        profileImageUrl: businessData.profile_image_url ?? "",
         planStatus: businessData.plan_status ?? null,
         publicBookingEnabled: businessData.public_booking_enabled ?? null
       };
@@ -1063,6 +1088,7 @@ export default function BarberPanel() {
       businessId: assignment.business_id,
       businessName: business.name ?? "",
       businessSlug: business.slug ?? "",
+      profileImageUrl: business.profile_image_url ?? "",
       planStatus: business.plan_status ?? null,
       publicBookingEnabled: business.public_booking_enabled ?? null
     };
@@ -1104,6 +1130,136 @@ export default function BarberPanel() {
     } catch (error) {
       console.error("Error copying public booking link:", error);
       setPublicBookingLinkMessage("No se pudo copiar el enlace.");
+    }
+  }
+
+  function handleBusinessImageFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setBusinessImageMessage("");
+
+    if (!file) {
+      setBusinessImageFile(null);
+      return;
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxSize = 3 * 1024 * 1024;
+
+    if (!allowedTypes.includes(file.type)) {
+      setBusinessImageFile(null);
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("Solo puedes subir imágenes JPG, PNG o WebP.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > maxSize) {
+      setBusinessImageFile(null);
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("La imagen no puede superar 3 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setBusinessImageFile(file);
+  }
+
+  async function uploadBusinessImage() {
+    if (!currentBusinessId || !businessImageFile) {
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("Selecciona una imagen antes de subirla.");
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    setIsUploadingBusinessImage(true);
+    setBusinessImageMessage("");
+
+    const formData = new FormData();
+    formData.append("business_id", currentBusinessId);
+    formData.append("image", businessImageFile);
+
+    try {
+      const response = await fetch("/api/admin/business-image", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo subir la imagen.");
+      }
+
+      setCurrentBusinessProfileImageUrl(result.profile_image_url ?? "");
+      setBusinessImageFile(null);
+      setBusinessImageMessageType("success");
+      setBusinessImageMessage("Imagen subida correctamente.");
+    } catch (error) {
+      console.error("Error uploading business image:", error);
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("No se pudo subir la imagen.");
+    } finally {
+      setIsUploadingBusinessImage(false);
+    }
+  }
+
+  async function removeBusinessImage() {
+    if (!currentBusinessId) {
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    setIsUploadingBusinessImage(true);
+    setBusinessImageMessage("");
+
+    try {
+      const response = await fetch("/api/admin/business-image", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          business_id: currentBusinessId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo quitar la imagen.");
+      }
+
+      setCurrentBusinessProfileImageUrl("");
+      setBusinessImageFile(null);
+      setBusinessImageMessageType("success");
+      setBusinessImageMessage("Imagen quitada correctamente.");
+    } catch (error) {
+      console.error("Error removing business image:", error);
+      setBusinessImageMessageType("error");
+      setBusinessImageMessage("No se pudo quitar la imagen.");
+    } finally {
+      setIsUploadingBusinessImage(false);
     }
   }
 
@@ -4166,6 +4322,76 @@ export default function BarberPanel() {
                     Tu barbería no está visible para reservas públicas.
                   </p>
                 )}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <p className="text-lg font-bold text-white">
+                  Imagen de la barbería
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white/65">
+                  Sube un logo o foto de perfil para mostrarlo en la página
+                  pública de reservas.
+                </p>
+
+                <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
+                  {currentBusinessProfileImageUrl ? (
+                    <img
+                      alt={currentBusinessName || businessSettings.business_name}
+                      className="h-24 w-24 rounded-full border border-barber-gold/35 object-cover shadow-lg shadow-black/30"
+                      src={currentBusinessProfileImageUrl}
+                    />
+                  ) : (
+                    <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border border-barber-gold/35 bg-barber-gold/10 text-4xl font-bold text-barber-gold shadow-lg shadow-black/30">
+                      {getBusinessInitial(
+                        currentBusinessName || businessSettings.business_name
+                      )}
+                    </div>
+                  )}
+
+                  <div className="w-full space-y-3">
+                    <input
+                      accept="image/jpeg,image/png,image/webp"
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white file:mr-4 file:rounded-full file:border-0 file:bg-barber-gold file:px-4 file:py-2 file:text-sm file:font-bold file:text-black"
+                      onChange={handleBusinessImageFileChange}
+                      type="file"
+                    />
+                    <p className="text-xs leading-5 text-white/45">
+                      Formatos permitidos: JPG, PNG o WebP. Tamaño máximo: 3 MB.
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <button
+                        className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={!businessImageFile || isUploadingBusinessImage}
+                        onClick={uploadBusinessImage}
+                        type="button"
+                      >
+                        {isUploadingBusinessImage ? "Subiendo..." : "Subir imagen"}
+                      </button>
+                      <button
+                        className="rounded-2xl border border-red-400/35 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={
+                          !currentBusinessProfileImageUrl ||
+                          isUploadingBusinessImage
+                        }
+                        onClick={removeBusinessImage}
+                        type="button"
+                      >
+                        Quitar imagen
+                      </button>
+                    </div>
+                    {businessImageMessage && (
+                      <p
+                        className={
+                          businessImageMessageType === "success"
+                            ? "text-sm font-semibold text-barber-gold"
+                            : "text-sm font-semibold text-red-100"
+                        }
+                      >
+                        {businessImageMessage}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">

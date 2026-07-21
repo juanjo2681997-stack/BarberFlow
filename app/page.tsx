@@ -82,6 +82,8 @@ type Business = {
   slug: string;
   plan_status: PlanStatus | null;
   public_booking_enabled: boolean | null;
+  profile_image_url?: string | null;
+  cover_image_url?: string | null;
   business_name?: string | null;
   slogan?: string | null;
   address?: string | null;
@@ -627,6 +629,10 @@ function getBusinessDisplayName(business: Business | null) {
   return business?.business_name?.trim() || business?.name || "BarberFlow";
 }
 
+function getBusinessInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "B";
+}
+
 function getBusinessSlogan(business: Business) {
   return business.slogan?.trim() || "";
 }
@@ -1041,7 +1047,9 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("businesses")
-      .select("id, name, slug, plan_status, public_booking_enabled")
+      .select(
+        "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
+      )
       .eq("slug", slug)
       .single();
 
@@ -1077,7 +1085,9 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("businesses")
-      .select("id, name, slug, plan_status, public_booking_enabled")
+      .select(
+        "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
+      )
       .eq("public_booking_enabled", true)
       .in("plan_status", ["demo", "active"])
       .order("name", { ascending: true });
@@ -2899,15 +2909,32 @@ export default function Home() {
               businesses.map((business) => {
                 const slogan = getBusinessSlogan(business);
                 const address = getBusinessAddress(business);
+                const displayName = getBusinessDisplayName(business);
+                const profileImageUrl = normalizeOptionalText(
+                  business.profile_image_url
+                );
 
                 return (
                   <article
                     className="rounded-2xl border border-white/10 bg-black/20 p-5"
                     key={business.id}
                   >
-                    <p className="text-xl font-bold text-white">
-                      {getBusinessDisplayName(business)}
-                    </p>
+                    <div className="flex items-center gap-4">
+                      {profileImageUrl ? (
+                        <img
+                          alt={displayName}
+                          className="h-14 w-14 rounded-full border border-barber-gold/30 object-cover"
+                          src={profileImageUrl}
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full border border-barber-gold/30 bg-barber-gold/10 text-xl font-bold text-barber-gold">
+                          {getBusinessInitial(displayName)}
+                        </div>
+                      )}
+                      <p className="text-xl font-bold text-white">
+                        {displayName}
+                      </p>
+                    </div>
                     {slogan && (
                       <p className="mt-2 text-sm leading-6 text-white/60">
                         {slogan}
@@ -2955,6 +2982,19 @@ export default function Home() {
           </div>
 
           <div className="mb-9">
+            <div className="mb-5">
+              {normalizeOptionalText(currentBusiness?.profile_image_url) ? (
+                <img
+                  alt={businessSettings.business_name}
+                  className="h-24 w-24 rounded-full border border-barber-gold/35 object-cover shadow-lg shadow-black/30"
+                  src={normalizeOptionalText(currentBusiness?.profile_image_url)}
+                />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-full border border-barber-gold/35 bg-barber-gold/10 text-4xl font-bold text-barber-gold shadow-lg shadow-black/30">
+                  {getBusinessInitial(businessSettings.business_name)}
+                </div>
+              )}
+            </div>
             <h1 className="text-4xl font-bold leading-tight text-white">
               {businessSettings.business_name}
             </h1>
