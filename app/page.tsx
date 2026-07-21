@@ -135,6 +135,23 @@ type CustomerAppointment = {
   status: string | null;
 };
 
+type Review = {
+  id: string;
+  business_id: string;
+  customer_user_id: string | null;
+  customer_name: string;
+  rating: number;
+  comment: string;
+  is_visible: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type ReviewForm = {
+  rating: number;
+  comment: string;
+};
+
 type CustomerAuthForm = {
   email: string;
   password: string;
@@ -233,6 +250,11 @@ const initialCustomerLoginForm: CustomerLoginForm = {
   password: ""
 };
 
+const initialReviewForm: ReviewForm = {
+  rating: 5,
+  comment: ""
+};
+
 function hasEmptyFields(form: BookingForm) {
   return Object.values(form).some((value) => value.trim() === "");
 }
@@ -253,6 +275,20 @@ function formatServiceText(service: Service) {
 
 function formatAppointmentTime(time: string) {
   return time.slice(0, 5);
+}
+
+function formatReviewDate(dateValue: string) {
+  return new Date(dateValue).toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function renderStars(rating: number) {
+  const safeRating = Math.min(5, Math.max(1, Math.round(rating)));
+
+  return "★".repeat(safeRating) + "☆".repeat(5 - safeRating);
 }
 
 function formatDateForSupabase(date: Date) {
@@ -720,6 +756,11 @@ export default function Home() {
   const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
   const [customerAppointmentsMessage, setCustomerAppointmentsMessage] =
     useState<FormMessage | null>(null);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewForm, setReviewForm] = useState<ReviewForm>(initialReviewForm);
+  const [reviewMessage, setReviewMessage] = useState<FormMessage | null>(null);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [isSavingReview, setIsSavingReview] = useState(false);
   const [accessMode, setAccessMode] = useState<AccessMode>("initial");
   const [barberLoginForm, setBarberLoginForm] = useState<CustomerLoginForm>(
     initialCustomerLoginForm
@@ -844,6 +885,12 @@ export default function Home() {
   const isCustomerProfileComplete =
     customerProfile.full_name.trim() !== "" && customerProfile.phone.trim() !== "";
   const isDirectBusinessEntry = directBusinessSlug !== null && directBusinessSlug !== "";
+  const reviewCount = reviews.length;
+  const averageRating =
+    reviewCount === 0
+      ? 0
+      : reviews.reduce((total, review) => total + Number(review.rating), 0) /
+        reviewCount;
 
   useEffect(() => {
     currentBusinessIdRef.current = currentBusinessId;
@@ -862,6 +909,7 @@ export default function Home() {
     loadServices();
     loadWorkingHours();
     loadBlockedTimes();
+    loadReviews(currentBusinessId);
   }, [currentBusinessId]);
 
   useEffect(() => {
@@ -1030,6 +1078,9 @@ export default function Home() {
     setDayAppointments([]);
     setBlockedTimes([]);
     setDayBlockedTimes([]);
+    setReviews([]);
+    setReviewForm(initialReviewForm);
+    setReviewMessage(null);
     setFormData(initialForm);
     setLastAppointment(null);
     setPushMessage(null);
@@ -1181,6 +1232,9 @@ export default function Home() {
     setBlockedTimes([]);
     setDayBlockedTimes([]);
     setCustomerAppointments([]);
+    setReviews([]);
+    setReviewForm(initialReviewForm);
+    setReviewMessage(null);
     setFormData(initialForm);
     setLastAppointment(null);
     setPushMessage(null);
@@ -1189,6 +1243,121 @@ export default function Home() {
     setIsLoadingSchedule(false);
     setIsLoadingServices(false);
     loadBusinesses();
+  }
+
+  async function loadReviews(businessId = currentBusinessId) {
+    if (!businessId) {
+      setReviews([]);
+      return;
+    }
+
+    setIsLoadingReviews(true);
+
+    const { data, error } = await supabase
+      .from("reviews")
+      .select(
+        "id, business_id, customer_user_id, customer_name, rating, comment, is_visible, created_at, updated_at"
+      )
+      .eq("business_id", businessId)
+      .eq("is_visible", true)
+      .order("created_at", { ascending: false });
+
+    setIsLoadingReviews(false);
+
+    if (error) {
+      console.error("Error loading reviews:", error);
+      setReviews([]);
+      return;
+    }
+
+    setReviews((data ?? []) as Review[]);
+  }
+
+  function updateReviewForm(field: keyof ReviewForm, value: string | number) {
+    setReviewForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setReviewMessage(null);
+  }
+
+  async function submitReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setReviewMessage(null);
+
+    const comment = reviewForm.comment.trim();
+    const rating = Number(reviewForm.rating);
+    const customerName =
+      customerProfile.full_name.trim() || customerUser?.email?.trim() || "";
+
+    if (!currentBusinessId) {
+      setReviewMessage({
+        text: "No se pudo identificar la barbería activa.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (!customerUser) {
+      setReviewMessage({
+        text: "Inicia sesión como cliente para dejar una reseña.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (!customerName) {
+      setReviewMessage({
+        text: "No se pudo identificar el nombre del cliente.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      setReviewMessage({
+        text: "Elige una puntuación entre 1 y 5 estrellas.",
+        type: "error"
+      });
+      return;
+    }
+
+    if (comment.length < 5) {
+      setReviewMessage({
+        text: "El comentario debe tener al menos 5 caracteres.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsSavingReview(true);
+
+    const { error } = await supabase.from("reviews").insert({
+      business_id: currentBusinessId,
+      customer_user_id: customerUser.id,
+      customer_name: customerName,
+      rating,
+      comment,
+      is_visible: true
+    });
+
+    setIsSavingReview(false);
+
+    if (error) {
+      console.error("Error saving review:", error);
+      setReviewMessage({
+        text: "No se pudo guardar la reseña.",
+        type: "error"
+      });
+      return;
+    }
+
+    setReviewForm(initialReviewForm);
+    await loadReviews(currentBusinessId);
+    setReviewMessage({
+      text: "Gracias por tu reseña",
+      type: "success"
+    });
   }
 
   async function loadBusinessSettings(businessId = currentBusinessId) {
@@ -3066,6 +3235,135 @@ export default function Home() {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Reseñas</h2>
+            <p className="mt-2 text-sm leading-6 text-white/65">
+              Opiniones publicadas por la barbería.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-barber-gold/25 bg-barber-gold/10 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-barber-gold">
+              {reviewCount === 0 ? "—" : averageRating.toFixed(1)}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-white/55">
+              {reviewCount} reseñas
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {isLoadingReviews ? (
+            <p className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/60">
+              Cargando reseñas...
+            </p>
+          ) : reviews.length === 0 ? (
+            <p className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/60">
+              Todavía no hay reseñas publicadas.
+            </p>
+          ) : (
+            reviews.map((review) => (
+              <article
+                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                key={review.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      {review.customer_name}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-barber-gold">
+                      {renderStars(review.rating)}
+                    </p>
+                  </div>
+                  <p className="text-xs font-semibold text-white/45">
+                    {formatReviewDate(review.created_at)}
+                  </p>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-white/70">
+                  {review.comment}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
+
+        {!isCustomerLoggedIn ? (
+          <p className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm font-semibold text-white/65">
+            Inicia sesión como cliente para dejar una reseña.
+          </p>
+        ) : (
+          <form className="mt-6 space-y-4" onSubmit={submitReview}>
+            <h3 className="text-lg font-bold text-white">Deja tu reseña</h3>
+            <p className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm font-semibold text-white/65">
+              Publicarás como{" "}
+              <span className="text-white">
+                {customerProfile.full_name.trim() ||
+                  customerUser?.email ||
+                  "cliente"}
+              </span>
+            </p>
+
+            <div>
+              <span className="mb-2 block text-sm font-semibold text-white/70">
+                Estrellas
+              </span>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <button
+                    className={
+                      reviewForm.rating === rating
+                        ? "rounded-2xl border border-barber-gold bg-barber-gold px-3 py-3 text-sm font-bold text-black"
+                        : "rounded-2xl border border-white/10 bg-black/30 px-3 py-3 text-sm font-bold text-white transition hover:border-barber-gold/60 hover:text-barber-gold"
+                    }
+                    key={rating}
+                    onClick={() => updateReviewForm("rating", rating)}
+                    type="button"
+                  >
+                    {rating}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-white/70">
+                Comentario
+              </span>
+              <textarea
+                className="min-h-28 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                onChange={(event) =>
+                  updateReviewForm("comment", event.target.value)
+                }
+                placeholder="Cuéntanos cómo fue tu experiencia"
+                value={reviewForm.comment}
+              />
+            </label>
+
+            <button
+              className="w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSavingReview}
+              type="submit"
+            >
+              {isSavingReview ? "Guardando..." : "Enviar reseña"}
+            </button>
+
+            {reviewMessage && (
+              <p
+                className={
+                  reviewMessage.type === "success"
+                    ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold leading-6 text-barber-gold"
+                    : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100"
+                }
+              >
+                {reviewMessage.text}
+              </p>
+            )}
+          </form>
+        )}
       </section>
 
       <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">

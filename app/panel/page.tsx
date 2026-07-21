@@ -119,6 +119,18 @@ type EditAppointmentForm = {
   duration_minutes: number;
 };
 
+type Review = {
+  id: string;
+  business_id: string;
+  customer_user_id: string | null;
+  customer_name: string;
+  rating: number;
+  comment: string;
+  is_visible: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 type BusinessSettings = {
   id: string;
   business_name: string;
@@ -154,6 +166,7 @@ type BusinessDetails = {
 
 type PanelSectionKey =
   | "dayAgenda"
+  | "reviews"
   | "history"
   | "manual"
   | "reminders"
@@ -360,6 +373,20 @@ function formatReadableAppointmentDate(dateValue: string) {
     month: "2-digit",
     year: "numeric"
   }).format(date);
+}
+
+function formatReviewDate(dateValue: string) {
+  return new Date(dateValue).toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function renderStars(rating: number) {
+  const safeRating = Math.min(5, Math.max(1, Math.round(rating)));
+
+  return "★".repeat(safeRating) + "☆".repeat(5 - safeRating);
 }
 
 function formatDateForSupabase(date: Date) {
@@ -636,6 +663,7 @@ function workingHourHasChanged(
 export default function BarberPanel() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [pendingCancellationNotifications, setPendingCancellationNotifications] =
     useState<BlockCancelledAppointment[]>([]);
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
@@ -674,6 +702,7 @@ export default function BarberPanel() {
   const [loginError, setLoginError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
   const [isLoadingBlockedTimes, setIsLoadingBlockedTimes] = useState(true);
@@ -682,6 +711,10 @@ export default function BarberPanel() {
     useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
   const [historyMessageType, setHistoryMessageType] = useState<"success" | "error">(
+    "success"
+  );
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewMessageType, setReviewMessageType] = useState<"success" | "error">(
     "success"
   );
   const [historyStatusFilter, setHistoryStatusFilter] =
@@ -741,6 +774,7 @@ export default function BarberPanel() {
   const [isLoadingEditHours, setIsLoadingEditHours] = useState(false);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
+    reviews: false,
     history: false,
     manual: true,
     reminders: false,
@@ -901,6 +935,7 @@ export default function BarberPanel() {
     await cleanupExpiredBlockedTimes(businessId);
     loadAppointments(businessId);
     loadAppointmentHistory(businessId);
+    loadReviews(businessId);
     loadPendingCancellationNotifications(businessId);
     loadBusinessSettings(true, businessId);
     loadWorkingHours(businessId);
@@ -923,6 +958,7 @@ export default function BarberPanel() {
     setIsUploadingBusinessImage(false);
     setAppointments([]);
     setHistoryAppointments([]);
+    setReviews([]);
     setPendingCancellationNotifications([]);
     setWorkingHours([]);
     setServices([]);
@@ -933,8 +969,11 @@ export default function BarberPanel() {
     setManualAvailableHours([]);
     setIsLoadingManualHours(false);
     setIsLoadingHistory(false);
+    setIsLoadingReviews(false);
     setHistoryMessage("");
     setHistoryMessageType("success");
+    setReviewMessage("");
+    setReviewMessageType("success");
     setHasCustomBlockCancellationMessage(false);
     setHistoryStatusFilter("all");
     setHistoryDateFrom("");
@@ -1660,6 +1699,65 @@ export default function BarberPanel() {
         )
       }))
     );
+  }
+
+  async function loadReviews(businessId = currentBusinessId) {
+    if (!businessId) {
+      return;
+    }
+
+    setIsLoadingReviews(true);
+    setReviewMessage("");
+    setReviewMessageType("success");
+
+    const { data, error } = await supabase
+      .from("reviews")
+      .select("*")
+      .eq("business_id", businessId)
+      .eq("is_visible", true)
+      .order("created_at", { ascending: false });
+
+    setIsLoadingReviews(false);
+
+    if (error) {
+      console.error("Error loading reviews:", error);
+      setReviewMessageType("error");
+      setReviewMessage("No se pudieron cargar las reseñas.");
+      return;
+    }
+
+    setReviews((data ?? []) as Review[]);
+  }
+
+  async function deleteReview(reviewId: string) {
+    if (!currentBusinessId) {
+      return;
+    }
+
+    const confirmed = window.confirm("¿Seguro que quieres eliminar esta reseña?");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setReviewMessage("");
+
+    const { error } = await supabase
+      .from("reviews")
+      .delete()
+      .eq("id", reviewId)
+      .eq("business_id", currentBusinessId);
+
+    if (error) {
+      console.error("Error deleting review:", error);
+      setReviewMessageType("error");
+      setReviewMessage("No se pudo eliminar la reseña.");
+      return;
+    }
+
+    await loadReviews();
+    setReviewMessageType("success");
+    setReviewMessage("Reseña eliminada correctamente.");
   }
 
   async function loadPendingCancellationNotifications(
@@ -4026,6 +4124,68 @@ export default function BarberPanel() {
         </section>
 
         <section className="order-2 mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("reviews", "Reseñas")}
+          {openSections.reviews && (
+            <div className="mt-4 space-y-5">
+              {reviewMessage && (
+                <p
+                  className={
+                    reviewMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
+                  {reviewMessage}
+                </p>
+              )}
+
+              {isLoadingReviews ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  Cargando reseñas...
+                </p>
+              ) : reviews.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  No hay reseñas todavía.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {reviews.map((review) => (
+                    <article
+                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                      key={review.id}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-base font-bold text-white">
+                            {review.customer_name}
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-barber-gold">
+                            {renderStars(review.rating)}
+                          </p>
+                        </div>
+                        <p className="text-xs font-semibold text-white/45">
+                          {formatReviewDate(review.created_at)}
+                        </p>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-white/70">
+                        {review.comment}
+                      </p>
+                      <button
+                        className="mt-4 w-full rounded-full border border-red-400/45 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98]"
+                        onClick={() => deleteReview(review.id)}
+                        type="button"
+                      >
+                        Eliminar reseña
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="order-3 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("history", "Historial de citas")}
           {openSections.history && (
             <div className="mt-4 space-y-4">
