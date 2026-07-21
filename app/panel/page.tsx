@@ -140,26 +140,16 @@ type BusinessSettings = {
 type BusinessUserAssignment = {
   business_id: string;
   role: string | null;
-  businesses:
-    | {
-        id: string;
-        name: string;
-        slug: string;
-        plan_status: string | null;
-        public_booking_enabled: boolean | null;
-        profile_image_url: string | null;
-        cover_image_url: string | null;
-      }
-    | {
-        id: string;
-        name: string;
-        slug: string;
-        plan_status: string | null;
-        public_booking_enabled: boolean | null;
-        profile_image_url: string | null;
-        cover_image_url: string | null;
-      }[]
-    | null;
+};
+
+type BusinessDetails = {
+  id: string;
+  name: string | null;
+  slug: string | null;
+  plan_status: string | null;
+  public_booking_enabled: boolean | null;
+  profile_image_url: string | null;
+  cover_image_url: string | null;
 };
 
 type PanelSectionKey =
@@ -991,6 +981,13 @@ export default function BarberPanel() {
       return;
     }
 
+    if (process.env.NODE_ENV === "development") {
+      console.log("Panel user:", {
+        userId: user.id,
+        email: user.email
+      });
+    }
+
     const assignedBusiness = await loadAssignedBusiness(user.id, user.email ?? "");
 
     if (!assignedBusiness) {
@@ -1020,6 +1017,13 @@ export default function BarberPanel() {
     setCurrentBusinessPublicBookingEnabled(
       assignedBusiness.publicBookingEnabled
     );
+    if (process.env.NODE_ENV === "development") {
+      console.log("Panel business loaded:", {
+        currentBusinessId: assignedBusiness.businessId,
+        businessName: assignedBusiness.businessName,
+        businessSlug: assignedBusiness.businessSlug
+      });
+    }
     setIsAuthenticated(true);
     setPanelAccessDenied(false);
     setIsCheckingAdmin(false);
@@ -1027,8 +1031,7 @@ export default function BarberPanel() {
   }
 
   async function loadAssignedBusiness(userId: string, userEmail: string) {
-    const selectQuery =
-      "business_id, role, businesses(id,name,slug,plan_status,public_booking_enabled,profile_image_url,cover_image_url)";
+    const selectQuery = "business_id, role";
     let result = await supabase
       .from("business_users")
       .select(selectQuery)
@@ -1056,33 +1059,20 @@ export default function BarberPanel() {
       return null;
     }
 
-    const business = Array.isArray(assignment.businesses)
-      ? assignment.businesses[0]
-      : assignment.businesses;
+    const { data: businessData, error: businessError } = await supabase
+      .from("businesses")
+      .select(
+        "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
+      )
+      .eq("id", assignment.business_id)
+      .maybeSingle();
 
-    if (!business?.slug) {
-      const { data: businessData, error: businessError } = await supabase
-        .from("businesses")
-        .select(
-          "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
-        )
-        .eq("id", assignment.business_id)
-        .maybeSingle();
-
-      if (businessError || !businessData) {
-        console.error("Error loading assigned business details:", businessError);
-        return null;
-      }
-
-      return {
-        businessId: assignment.business_id,
-        businessName: businessData.name ?? "",
-        businessSlug: businessData.slug ?? "",
-        profileImageUrl: businessData.profile_image_url ?? "",
-        planStatus: businessData.plan_status ?? null,
-        publicBookingEnabled: businessData.public_booking_enabled ?? null
-      };
+    if (businessError || !businessData) {
+      console.error("Error loading assigned business details:", businessError);
+      return null;
     }
+
+    const business = businessData as BusinessDetails;
 
     return {
       businessId: assignment.business_id,
@@ -1591,7 +1581,6 @@ export default function BarberPanel() {
   }
 
   async function loadAppointments(businessId = currentBusinessId) {
-
     if (!businessId) {
       return;
     }
@@ -1601,28 +1590,39 @@ export default function BarberPanel() {
 
     const { data, error } = await supabase
       .from("appointments")
-      .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, barber_name, duration_minutes, reminder_sent_at, reminder_status, reminder_error, appointment_status, status_updated_at, status, cancelled_at, cancellation_reason, whatsapp_cancel_notified_at"
-      )
+      .select("*")
       .eq("business_id", businessId)
+      .gte("appointment_date", today)
+      .or("status.is.null,status.neq.cancelled")
+      .or("appointment_status.is.null,appointment_status.neq.cancelled")
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
 
     setIsLoading(false);
 
     if (error) {
+      console.error("Error loading appointments:", error);
       setErrorMessage("No se pudieron cargar las citas.");
       return;
     }
 
-    setAppointments(
-      ((data ?? []) as Appointment[]).map((appointment) => ({
+    const normalizedAppointments = ((data ?? []) as Appointment[]).map(
+      (appointment) => ({
         ...appointment,
         appointment_status: normalizeAppointmentStatus(
           appointment.appointment_status
         )
-      }))
+      })
     );
+
+    if (process.env.NODE_ENV === "development") {
+      console.log("Appointments loaded:", {
+        currentBusinessId: businessId,
+        count: normalizedAppointments.length
+      });
+    }
+
+    setAppointments(normalizedAppointments);
   }
 
   async function loadAppointmentHistory(businessId = currentBusinessId) {
@@ -3447,11 +3447,6 @@ export default function BarberPanel() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white">Panel del barbero</h1>
-              {currentBusinessName && (
-                <p className="mt-2 text-sm font-semibold text-white/55">
-                  {currentBusinessName}
-                </p>
-              )}
             </div>
             <div className="flex sm:justify-end">
               <button
