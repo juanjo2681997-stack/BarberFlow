@@ -196,8 +196,8 @@ const calendarWeekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const defaultBusinessSettings: BusinessSettings = {
   business_name: "Pablo's Barbershop",
   slogan: "Reserva tu corte en menos de 30 segundos",
-  whatsapp_phone: "34675070848",
-  whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
+  whatsapp_phone: "",
+  whatsapp_message: "Hola, quiero reservar una cita.",
   instagram_url: "",
   address: "",
   main_button_text: "Reservar cita",
@@ -655,6 +655,16 @@ function getInstagramUrl(value: unknown) {
     : `https://${instagramUrl}`;
 }
 
+function getWhatsAppPhone(value: unknown) {
+  const cleanPhone = normalizeOptionalText(value).replace(/\D/g, "");
+
+  if (cleanPhone.length === 9 && !cleanPhone.startsWith("34")) {
+    return `34${cleanPhone}`;
+  }
+
+  return cleanPhone;
+}
+
 export default function Home() {
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
@@ -722,16 +732,20 @@ export default function Home() {
     null
   );
   const currentBusinessIdRef = useRef<string | null>(null);
+  const whatsappPhone = getWhatsAppPhone(businessSettings.whatsapp_phone);
+  const whatsappMessage = hasText(businessSettings.whatsapp_message)
+    ? normalizeOptionalText(businessSettings.whatsapp_message)
+    : defaultBusinessSettings.whatsapp_message;
   const instagramUrl = getInstagramUrl(businessSettings.instagram_url);
   const address = normalizeOptionalText(businessSettings.address);
 
   const secondaryLinks = [
-    ...(hasText(businessSettings.whatsapp_phone)
+    ...(hasText(businessSettings.whatsapp_phone) && hasText(whatsappPhone)
       ? [
           {
             label: "WhatsApp",
-            href: `https://wa.me/${businessSettings.whatsapp_phone}?text=${encodeURIComponent(
-              businessSettings.whatsapp_message
+            href: `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(
+              whatsappMessage
             )}`
           }
         ]
@@ -1194,9 +1208,10 @@ export default function Home() {
     const nextBusinessSettings = {
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
-      whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
+      whatsapp_phone: normalizeOptionalText(data.whatsapp_phone),
       whatsapp_message:
-        data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
+        normalizeOptionalText(data.whatsapp_message) ||
+        defaultBusinessSettings.whatsapp_message,
       instagram_url: normalizeOptionalText(data.instagram_url),
       address: normalizeOptionalText(data.address),
       main_button_text:

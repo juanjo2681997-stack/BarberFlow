@@ -178,8 +178,8 @@ const defaultBusinessSettings: BusinessSettings = {
   id: "",
   business_name: "Pablo's Barbershop",
   slogan: "Reserva tu corte en menos de 30 segundos",
-  whatsapp_phone: "34675070848",
-  whatsapp_message: "Hola, quiero reservar una cita en Pablo's Barbershop.",
+  whatsapp_phone: "",
+  whatsapp_message: "Hola, quiero reservar una cita.",
   instagram_url: "",
   address: "",
   main_button_text: "Reservar cita",
@@ -1140,9 +1140,13 @@ export default function BarberPanel() {
       id: data.id,
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
-      whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
+      whatsapp_phone:
+        typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
       whatsapp_message:
-        data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
+        typeof data.whatsapp_message === "string" &&
+        data.whatsapp_message.trim() !== ""
+          ? data.whatsapp_message
+          : defaultBusinessSettings.whatsapp_message,
       instagram_url:
         typeof data.instagram_url === "string" ? data.instagram_url : "",
       address: typeof data.address === "string" ? data.address : "",
@@ -1194,9 +1198,13 @@ export default function BarberPanel() {
       id: data.id,
       business_name: data.business_name || defaultBusinessSettings.business_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
-      whatsapp_phone: data.whatsapp_phone || defaultBusinessSettings.whatsapp_phone,
+      whatsapp_phone:
+        typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
       whatsapp_message:
-        data.whatsapp_message || defaultBusinessSettings.whatsapp_message,
+        typeof data.whatsapp_message === "string" &&
+        data.whatsapp_message.trim() !== ""
+          ? data.whatsapp_message
+          : defaultBusinessSettings.whatsapp_message,
       instagram_url:
         typeof data.instagram_url === "string" ? data.instagram_url : "",
       address: typeof data.address === "string" ? data.address : "",

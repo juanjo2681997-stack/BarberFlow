@@ -66,11 +66,10 @@ export default function RegisterBusinessPage() {
       form.business_name.trim() === "" ||
       form.owner_name.trim() === "" ||
       form.email.trim() === "" ||
-      form.password.trim() === "" ||
-      form.whatsapp_phone.trim() === ""
+      form.password.trim() === ""
     ) {
       setIsError(true);
-      setMessage("Rellena nombre de barbería, responsable, email, contraseña y WhatsApp.");
+      setMessage("Rellena nombre de barbería, responsable, email y contraseña.");
       return;
     }
 
@@ -243,7 +242,7 @@ export default function RegisterBusinessPage() {
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-white/70">
-                Teléfono WhatsApp
+                Teléfono WhatsApp opcional
               </span>
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"

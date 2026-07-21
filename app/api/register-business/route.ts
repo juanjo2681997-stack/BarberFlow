@@ -173,9 +173,9 @@ export async function POST(request: Request) {
     const address = cleanText(body.address);
     const instagramUrl = cleanText(body.instagram_url);
 
-    if (!businessName || !ownerName || !email || !password || !whatsappPhone) {
+    if (!businessName || !ownerName || !email || !password) {
       return NextResponse.json(
-        { error: "Rellena nombre de barbería, responsable, email, contraseña y WhatsApp." },
+        { error: "Rellena nombre de barbería, responsable, email y contraseña." },
         { status: 400 }
       );
     }
