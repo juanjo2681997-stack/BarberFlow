@@ -3584,8 +3584,8 @@ export default function BarberPanel() {
                 </p>
               )}
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="grid w-full max-w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Nombre del cliente
@@ -3644,12 +3644,12 @@ export default function BarberPanel() {
                     </select>
                   </label>
 
-                  <label className="block">
+                  <label className="block w-full max-w-full min-w-0">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Fecha
                     </span>
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      className="block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                       min={today}
                       onChange={(event) =>
                         updateManualAppointment(
@@ -3885,12 +3885,12 @@ export default function BarberPanel() {
                       </select>
                     </label>
 
-                    <label className="block">
+                    <label className="block min-w-0">
                       <span className="mb-2 block text-xs font-semibold text-white/60">
                         Fecha
                       </span>
                       <input
-                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                        className="box-border w-full max-w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                         min={today}
                         onChange={(event) =>
                           updateEditingAppointment(
@@ -4207,8 +4207,8 @@ export default function BarberPanel() {
           {renderAccordionHeader("history", "Historial de citas")}
           {openSections.history && (
             <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="grid w-full max-w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Estado
@@ -4253,24 +4253,24 @@ export default function BarberPanel() {
                     />
                   </label>
 
-                  <label className="block">
+                  <label className="block w-full max-w-full min-w-0">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Fecha desde
                     </span>
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      className="block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                       onChange={(event) => setHistoryDateFrom(event.target.value)}
                       type="date"
                       value={historyDateFrom}
                     />
                   </label>
 
-                  <label className="block">
+                  <label className="block w-full max-w-full min-w-0">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
                       Fecha hasta
                     </span>
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                      className="block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                       onChange={(event) => setHistoryDateTo(event.target.value)}
                       type="date"
                       value={historyDateTo}
@@ -5152,13 +5152,13 @@ export default function BarberPanel() {
           </div>
 
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="mx-auto w-[240px] max-w-full justify-self-center sm:w-full">
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="mx-auto w-[240px] max-w-full min-w-0 justify-self-center sm:w-full">
                 <label className="mb-2 block text-xs font-semibold text-white/60" htmlFor="block-date">
                   Fecha
                 </label>
                 <input
-                  className="box-border w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                  className="box-border w-full max-w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                   onChange={(event) =>
                     setNewBlockedTime({
                       ...newBlockedTime,
