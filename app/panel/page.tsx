@@ -124,6 +124,7 @@ type Review = {
   business_id: string;
   customer_user_id: string | null;
   customer_name: string;
+  customer_avatar_url: string | null;
   rating: number;
   comment: string;
   is_visible: boolean;
@@ -295,6 +296,10 @@ function normalizeWhatsAppPhone(phone: string) {
 
 function getBusinessInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || "B";
+}
+
+function getProfileInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "C";
 }
 
 function createAppointmentWhatsAppLink(
@@ -4155,13 +4160,26 @@ export default function BarberPanel() {
                       key={review.id}
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="text-base font-bold text-white">
-                            {review.customer_name}
-                          </p>
-                          <p className="mt-1 text-sm font-bold text-barber-gold">
-                            {renderStars(review.rating)}
-                          </p>
+                        <div className="flex items-center gap-3">
+                          {review.customer_avatar_url?.trim() ? (
+                            <img
+                              alt={review.customer_name}
+                              className="h-12 w-12 rounded-full border border-barber-gold/25 object-cover"
+                              src={review.customer_avatar_url}
+                            />
+                          ) : (
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-barber-gold/25 bg-barber-gold/10 text-base font-bold text-barber-gold">
+                              {getProfileInitial(review.customer_name)}
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-base font-bold text-white">
+                              {review.customer_name}
+                            </p>
+                            <p className="mt-1 text-sm font-bold text-barber-gold">
+                              {renderStars(review.rating)}
+                            </p>
+                          </div>
                         </div>
                         <p className="text-xs font-semibold text-white/45">
                           {formatReviewDate(review.created_at)}

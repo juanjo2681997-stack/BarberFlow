@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -122,6 +122,7 @@ type CustomerProfile = {
   user_id: string;
   full_name: string;
   phone: string;
+  avatar_url: string;
 };
 
 type CustomerAppointment = {
@@ -140,6 +141,7 @@ type Review = {
   business_id: string;
   customer_user_id: string | null;
   customer_name: string;
+  customer_avatar_url: string | null;
   rating: number;
   comment: string;
   is_visible: boolean;
@@ -669,6 +671,10 @@ function getBusinessInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || "B";
 }
 
+function getProfileInitial(nameOrEmail: string) {
+  return nameOrEmail.trim().charAt(0).toUpperCase() || "C";
+}
+
 function getBusinessSlogan(business: Business) {
   return business.slogan?.trim() || "";
 }
@@ -748,7 +754,8 @@ export default function Home() {
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile>({
     user_id: "",
     full_name: "",
-    phone: ""
+    phone: "",
+    avatar_url: ""
   });
   const [customerAppointments, setCustomerAppointments] = useState<
     CustomerAppointment[]
@@ -771,6 +778,10 @@ export default function Home() {
   const [isBarberAuthLoading, setIsBarberAuthLoading] = useState(false);
   const [isLoadingCustomerProfile, setIsLoadingCustomerProfile] = useState(false);
   const [isSavingCustomerProfile, setIsSavingCustomerProfile] = useState(false);
+  const [customerAvatarFile, setCustomerAvatarFile] = useState<File | null>(null);
+  const [isUploadingCustomerAvatar, setIsUploadingCustomerAvatar] = useState(false);
+  const [customerAvatarMessage, setCustomerAvatarMessage] =
+    useState<FormMessage | null>(null);
   const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
     useState(false);
   const [isCustomerAdmin, setIsCustomerAdmin] = useState(false);
@@ -1256,7 +1267,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("reviews")
       .select(
-        "id, business_id, customer_user_id, customer_name, rating, comment, is_visible, created_at, updated_at"
+        "id, business_id, customer_user_id, customer_name, customer_avatar_url, rating, comment, is_visible, created_at, updated_at"
       )
       .eq("business_id", businessId)
       .eq("is_visible", true)
@@ -1336,6 +1347,7 @@ export default function Home() {
       business_id: currentBusinessId,
       customer_user_id: customerUser.id,
       customer_name: customerName,
+      customer_avatar_url: customerProfile.avatar_url || null,
       rating,
       comment,
       is_visible: true
@@ -1543,8 +1555,12 @@ export default function Home() {
     setCustomerProfile({
       user_id: "",
       full_name: "",
-      phone: ""
+      phone: "",
+      avatar_url: ""
     });
+    setCustomerAvatarFile(null);
+    setCustomerAvatarMessage(null);
+    setIsUploadingCustomerAvatar(false);
     setCustomerAppointments([]);
     setCustomerAppointmentsMessage(null);
     setIsLoadingCustomerProfile(false);
@@ -1573,7 +1589,8 @@ export default function Home() {
       setCustomerProfile({
         user_id: "",
         full_name: "",
-        phone: ""
+        phone: "",
+        avatar_url: ""
       });
       setCustomerAppointments([]);
       setCustomerAppointmentsMessage(null);
@@ -1730,7 +1747,8 @@ export default function Home() {
         setCustomerProfile({
           user_id: data.user.id,
           full_name: fullName,
-          phone: customerAuthForm.phone.trim()
+          phone: customerAuthForm.phone.trim(),
+          avatar_url: ""
         });
       }
     }
@@ -1853,7 +1871,7 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("customer_profiles")
-      .select("user_id, full_name, phone")
+      .select("user_id, full_name, phone, avatar_url")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -1863,7 +1881,8 @@ export default function Home() {
       setCustomerProfile({
         user_id: userId,
         full_name: "",
-        phone: ""
+        phone: "",
+        avatar_url: ""
       });
       return;
     }
@@ -1871,7 +1890,8 @@ export default function Home() {
     setCustomerProfile({
       user_id: userId,
       full_name: data?.full_name ?? "",
-      phone: data?.phone ?? ""
+      phone: data?.phone ?? "",
+      avatar_url: data?.avatar_url ?? ""
     });
   }
 
@@ -1901,7 +1921,8 @@ export default function Home() {
     const profileToSave = {
       user_id: customerUser.id,
       full_name: customerProfile.full_name.trim(),
-      phone: customerProfile.phone.trim()
+      phone: customerProfile.phone.trim(),
+      avatar_url: customerProfile.avatar_url
     };
 
     const { error } = await saveCustomerProfileForUser(
@@ -1925,6 +1946,162 @@ export default function Home() {
       text: "Perfil guardado.",
       type: "success"
     });
+  }
+
+  function handleCustomerAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setCustomerAvatarMessage(null);
+
+    if (!file) {
+      setCustomerAvatarFile(null);
+      return;
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxSize = 3 * 1024 * 1024;
+
+    if (!allowedTypes.includes(file.type)) {
+      setCustomerAvatarFile(null);
+      setCustomerAvatarMessage({
+        text: "Solo puedes subir imágenes JPG, PNG o WebP.",
+        type: "error"
+      });
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > maxSize) {
+      setCustomerAvatarFile(null);
+      setCustomerAvatarMessage({
+        text: "La imagen no puede superar 3 MB.",
+        type: "error"
+      });
+      event.target.value = "";
+      return;
+    }
+
+    setCustomerAvatarFile(file);
+  }
+
+  async function uploadCustomerAvatar() {
+    if (!customerUser || !customerAvatarFile) {
+      setCustomerAvatarMessage({
+        text: "Selecciona una imagen antes de subirla.",
+        type: "error"
+      });
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setCustomerAvatarMessage({
+        text: "No se pudo comprobar tu sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsUploadingCustomerAvatar(true);
+    setCustomerAvatarMessage(null);
+
+    const formData = new FormData();
+    formData.append("avatar", customerAvatarFile);
+
+    try {
+      const response = await fetch("/api/customer-avatar", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: formData
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo subir el avatar.");
+      }
+
+      setCustomerProfile((currentProfile) => ({
+        ...currentProfile,
+        avatar_url: result.avatar_url ?? ""
+      }));
+      setCustomerAvatarFile(null);
+      setCustomerAvatarMessage({
+        text: "Foto de perfil subida correctamente.",
+        type: "success"
+      });
+
+      if (currentBusinessId) {
+        await loadReviews(currentBusinessId);
+      }
+    } catch (error) {
+      console.error("Error uploading customer avatar:", error);
+      setCustomerAvatarMessage({
+        text: "No se pudo subir la foto de perfil.",
+        type: "error"
+      });
+    } finally {
+      setIsUploadingCustomerAvatar(false);
+    }
+  }
+
+  async function removeCustomerAvatar() {
+    if (!customerUser) {
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setCustomerAvatarMessage({
+        text: "No se pudo comprobar tu sesión.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsUploadingCustomerAvatar(true);
+    setCustomerAvatarMessage(null);
+
+    try {
+      const response = await fetch("/api/customer-avatar", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "No se pudo quitar el avatar.");
+      }
+
+      setCustomerProfile((currentProfile) => ({
+        ...currentProfile,
+        avatar_url: result.avatar_url ?? ""
+      }));
+      setCustomerAvatarFile(null);
+      setCustomerAvatarMessage({
+        text: "Foto de perfil quitada correctamente.",
+        type: "success"
+      });
+
+      if (currentBusinessId) {
+        await loadReviews(currentBusinessId);
+      }
+    } catch (error) {
+      console.error("Error removing customer avatar:", error);
+      setCustomerAvatarMessage({
+        text: "No se pudo quitar la foto de perfil.",
+        type: "error"
+      });
+    } finally {
+      setIsUploadingCustomerAvatar(false);
+    }
   }
 
   async function loadCustomerAppointments(userId: string) {
@@ -3271,13 +3448,26 @@ export default function Home() {
                 key={review.id}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-white">
-                      {review.customer_name}
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-barber-gold">
-                      {renderStars(review.rating)}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {normalizeOptionalText(review.customer_avatar_url) ? (
+                      <img
+                        alt={review.customer_name}
+                        className="h-11 w-11 rounded-full border border-barber-gold/25 object-cover"
+                        src={normalizeOptionalText(review.customer_avatar_url)}
+                      />
+                    ) : (
+                      <div className="flex h-11 w-11 items-center justify-center rounded-full border border-barber-gold/25 bg-barber-gold/10 text-sm font-bold text-barber-gold">
+                        {getProfileInitial(review.customer_name)}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {review.customer_name}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-barber-gold">
+                        {renderStars(review.rating)}
+                      </p>
+                    </div>
                   </div>
                   <p className="text-xs font-semibold text-white/45">
                     {formatReviewDate(review.created_at)}
@@ -3529,6 +3719,77 @@ export default function Home() {
                 <p className="mt-3 text-sm text-white/60">Cargando perfil...</p>
               ) : (
                 <div className="mt-4 space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="text-sm font-bold text-white">Foto de perfil</p>
+                    <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+                      {normalizeOptionalText(customerProfile.avatar_url) ? (
+                        <img
+                          alt={
+                            customerProfile.full_name.trim() ||
+                            customerUser.email ||
+                            "Cliente"
+                          }
+                          className="h-20 w-20 rounded-full border border-barber-gold/30 object-cover shadow-lg shadow-black/30"
+                          src={normalizeOptionalText(customerProfile.avatar_url)}
+                        />
+                      ) : (
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-barber-gold/30 bg-barber-gold/10 text-3xl font-bold text-barber-gold shadow-lg shadow-black/30">
+                          {getProfileInitial(
+                            customerProfile.full_name || customerUser.email || ""
+                          )}
+                        </div>
+                      )}
+
+                      <div className="w-full space-y-3">
+                        <input
+                          accept="image/jpeg,image/png,image/webp"
+                          className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white file:mr-4 file:rounded-full file:border-0 file:bg-barber-gold file:px-4 file:py-2 file:text-sm file:font-bold file:text-black"
+                          onChange={handleCustomerAvatarFileChange}
+                          type="file"
+                        />
+                        <p className="text-xs leading-5 text-white/45">
+                          JPG, PNG o WebP. Tamaño máximo: 3 MB.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <button
+                            className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={
+                              !customerAvatarFile || isUploadingCustomerAvatar
+                            }
+                            onClick={uploadCustomerAvatar}
+                            type="button"
+                          >
+                            {isUploadingCustomerAvatar
+                              ? "Subiendo..."
+                              : "Subir foto"}
+                          </button>
+                          <button
+                            className="rounded-2xl border border-red-400/35 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={
+                              !customerProfile.avatar_url ||
+                              isUploadingCustomerAvatar
+                            }
+                            onClick={removeCustomerAvatar}
+                            type="button"
+                          >
+                            Quitar foto
+                          </button>
+                        </div>
+                        {customerAvatarMessage && (
+                          <p
+                            className={
+                              customerAvatarMessage.type === "success"
+                                ? "text-sm font-semibold text-barber-gold"
+                                : "text-sm font-semibold text-red-100"
+                            }
+                          >
+                            {customerAvatarMessage.text}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold text-white/70">
                       Nombre completo
