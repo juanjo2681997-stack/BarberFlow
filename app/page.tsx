@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
@@ -714,6 +715,7 @@ function getWhatsAppPhone(value: unknown) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [formMessage, setFormMessage] = useState<FormMessage | null>(null);
   const [formData, setFormData] = useState<BookingForm>(initialForm);
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
@@ -1847,10 +1849,7 @@ export default function Home() {
     }
 
     setBarberLoginForm(initialCustomerLoginForm);
-    setBarberMessage({
-      text: "Sesión iniciada como barbero.",
-      type: "success"
-    });
+    router.push("/panel");
   }
 
   async function logoutCustomer() {
