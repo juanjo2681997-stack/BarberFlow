@@ -3308,8 +3308,8 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
-      <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-between rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
+    <main className="flex min-h-screen flex-col bg-barber-black px-5 py-6 text-barber-cream">
+      <section className="order-1 mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-between rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <div>
           <div className="mb-8 flex items-center justify-between">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
@@ -3413,7 +3413,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+      <section className="order-4 mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-white">Reseñas</h2>
@@ -3555,7 +3555,7 @@ export default function Home() {
         )}
       </section>
 
-      <section className="mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+      <section className="order-5 mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
         <h2 className="text-2xl font-bold text-white">Mi perfil</h2>
         <p className="mt-2 text-sm leading-6 text-white/65">
           Gestiona tus datos de cliente y consulta tus próximas citas.
@@ -3830,60 +3830,12 @@ export default function Home() {
                 </div>
               )}
             </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <h3 className="text-lg font-bold text-white">Mis citas</h3>
-
-              {customerAppointmentsMessage && (
-                <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
-                  {customerAppointmentsMessage.text}
-                </p>
-              )}
-
-              {isLoadingCustomerAppointments ? (
-                <p className="mt-3 text-sm text-white/60">Cargando tus citas...</p>
-              ) : customerAppointments.length === 0 ? (
-                <p className="mt-3 text-sm text-white/60">
-                  Todavía no tienes citas guardadas en tu cuenta.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {customerAppointments.map((appointment) => (
-                    <article
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
-                      key={appointment.id}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-bold text-white">
-                            {appointment.service}
-                          </p>
-                          <p className="mt-1 text-sm text-white/60">
-                            {appointment.appointment_date} ·{" "}
-                            {formatAppointmentTime(appointment.appointment_time)}
-                          </p>
-                        </div>
-                        {appointment.reminder_status && (
-                          <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
-                            {appointment.reminder_status}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-3 space-y-1 text-sm text-white/65">
-                        <p>{appointment.customer_name}</p>
-                        <p>{appointment.customer_phone}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         )}
       </section>
 
       <section
-        className="mx-auto mt-6 w-full max-w-md scroll-mt-6 rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40"
+        className="order-2 mx-auto mt-6 w-full max-w-md scroll-mt-6 rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40"
         id="reserva"
       >
         <h2 className="text-2xl font-bold text-white">Reserva tu cita</h2>
@@ -4167,6 +4119,54 @@ export default function Home() {
                 {pushMessage.text}
               </p>
             )}
+          </div>
+        )}
+      </section>
+
+      <section className="order-3 mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+        <h2 className="text-2xl font-bold text-white">Mis citas</h2>
+
+        {customerAppointmentsMessage && (
+          <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
+            {customerAppointmentsMessage.text}
+          </p>
+        )}
+
+        {isLoadingCustomerAppointments ? (
+          <p className="mt-3 text-sm text-white/60">Cargando tus citas...</p>
+        ) : customerAppointments.length === 0 ? (
+          <p className="mt-3 text-sm text-white/60">
+            Todavía no tienes citas guardadas en tu cuenta.
+          </p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {customerAppointments.map((appointment) => (
+              <article
+                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                key={appointment.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      {appointment.service}
+                    </p>
+                    <p className="mt-1 text-sm text-white/60">
+                      {appointment.appointment_date} ·{" "}
+                      {formatAppointmentTime(appointment.appointment_time)}
+                    </p>
+                  </div>
+                  {appointment.reminder_status && (
+                    <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
+                      {appointment.reminder_status}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 space-y-1 text-sm text-white/65">
+                  <p>{appointment.customer_name}</p>
+                  <p>{appointment.customer_phone}</p>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>
