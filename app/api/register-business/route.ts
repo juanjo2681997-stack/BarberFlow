@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+const TRIAL_DAYS = 14;
+
 type RegisterBusinessBody = {
   business_name?: string;
   owner_name?: string;
@@ -153,6 +155,13 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Error inesperado.";
 }
 
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
 export async function POST(request: Request) {
   const supabase = getAdminClient();
 
@@ -213,6 +222,8 @@ export async function POST(request: Request) {
 
     const userId = userData.user.id;
     const slug = await getUniqueSlug(supabase, businessName);
+    const trialStartedAt = new Date();
+    const trialEndsAt = addDays(trialStartedAt, TRIAL_DAYS);
 
     const { data: business, error: businessError } = await supabase
       .from("businesses")
@@ -220,6 +231,10 @@ export async function POST(request: Request) {
         name: businessName,
         slug,
         plan_status: "demo",
+        plan_name: "free_trial",
+        subscription_status: "trialing",
+        trial_started_at: trialStartedAt.toISOString(),
+        trial_ends_at: trialEndsAt.toISOString(),
         public_booking_enabled: true
       })
       .select("id, name, slug")

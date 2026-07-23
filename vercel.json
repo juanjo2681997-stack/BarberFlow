@@ -4,6 +4,10 @@
     {
       "path": "/api/send-push-reminders",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/check-subscriptions",
+      "schedule": "0 6 * * *"
     }
   ]
 }

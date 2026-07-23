@@ -161,6 +161,12 @@ type BusinessDetails = {
   slug: string | null;
   plan_status: string | null;
   public_booking_enabled: boolean | null;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  subscription_started_at: string | null;
+  subscription_ends_at: string | null;
+  subscription_status: string | null;
+  plan_name: string | null;
   profile_image_url: string | null;
   cover_image_url: string | null;
 };
@@ -386,6 +392,18 @@ function formatReviewDate(dateValue: string) {
     month: "short",
     year: "numeric"
   });
+}
+
+function formatPlanDate(dateValue: string | null) {
+  if (!dateValue) {
+    return "Sin fecha";
+  }
+
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(new Date(dateValue));
 }
 
 function renderStars(rating: number) {
@@ -694,6 +712,14 @@ export default function BarberPanel() {
   >(null);
   const [currentBusinessPublicBookingEnabled, setCurrentBusinessPublicBookingEnabled] =
     useState<boolean | null>(null);
+  const [currentBusinessPlanName, setCurrentBusinessPlanName] = useState<
+    string | null
+  >(null);
+  const [currentBusinessSubscriptionStatus, setCurrentBusinessSubscriptionStatus] =
+    useState<string | null>(null);
+  const [currentBusinessTrialEndsAt, setCurrentBusinessTrialEndsAt] = useState<
+    string | null
+  >(null);
   const [publicBookingLinkMessage, setPublicBookingLinkMessage] = useState("");
   const [businessImageFile, setBusinessImageFile] = useState<File | null>(null);
   const [businessImageMessage, setBusinessImageMessage] = useState("");
@@ -799,6 +825,30 @@ export default function BarberPanel() {
   const isPublicBookingVisible =
     currentBusinessPublicBookingEnabled === true &&
     (currentBusinessPlanStatus === "demo" || currentBusinessPlanStatus === "active");
+  const trialDaysRemaining =
+    currentBusinessTrialEndsAt && currentBusinessPlanStatus === "demo"
+      ? Math.max(
+          0,
+          Math.ceil(
+            (new Date(currentBusinessTrialEndsAt).getTime() - Date.now()) /
+              (1000 * 60 * 60 * 24)
+          )
+        )
+      : null;
+  const planNameLabel =
+    currentBusinessPlanStatus === "demo"
+      ? "Prueba gratuita"
+      : currentBusinessPlanStatus === "active"
+        ? "Basic"
+        : currentBusinessPlanName === "basic"
+          ? "Basic"
+          : "Prueba gratuita";
+  const planStatusLabel =
+    currentBusinessPlanStatus === "demo"
+      ? "Activa"
+      : currentBusinessPlanStatus === "active"
+        ? "Activo"
+        : "Inactivo";
 
   const todayDate = new Date();
   const tomorrowDate = new Date(todayDate);
@@ -956,6 +1006,9 @@ export default function BarberPanel() {
     setCurrentBusinessProfileImageUrl("");
     setCurrentBusinessPlanStatus(null);
     setCurrentBusinessPublicBookingEnabled(null);
+    setCurrentBusinessPlanName(null);
+    setCurrentBusinessSubscriptionStatus(null);
+    setCurrentBusinessTrialEndsAt(null);
     setPublicBookingLinkMessage("");
     setBusinessImageFile(null);
     setBusinessImageMessage("");
@@ -1061,6 +1114,9 @@ export default function BarberPanel() {
     setCurrentBusinessPublicBookingEnabled(
       assignedBusiness.publicBookingEnabled
     );
+    setCurrentBusinessPlanName(assignedBusiness.planName);
+    setCurrentBusinessSubscriptionStatus(assignedBusiness.subscriptionStatus);
+    setCurrentBusinessTrialEndsAt(assignedBusiness.trialEndsAt);
     if (process.env.NODE_ENV === "development") {
       console.log("Panel business loaded:", {
         currentBusinessId: assignedBusiness.businessId,
@@ -1106,7 +1162,7 @@ export default function BarberPanel() {
     const { data: businessData, error: businessError } = await supabase
       .from("businesses")
       .select(
-        "id, name, slug, plan_status, public_booking_enabled, profile_image_url, cover_image_url"
+        "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, profile_image_url, cover_image_url"
       )
       .eq("id", assignment.business_id)
       .maybeSingle();
@@ -1124,7 +1180,10 @@ export default function BarberPanel() {
       businessSlug: business.slug ?? "",
       profileImageUrl: business.profile_image_url ?? "",
       planStatus: business.plan_status ?? null,
-      publicBookingEnabled: business.public_booking_enabled ?? null
+      publicBookingEnabled: business.public_booking_enabled ?? null,
+      planName: business.plan_name ?? null,
+      subscriptionStatus: business.subscription_status ?? null,
+      trialEndsAt: business.trial_ends_at ?? null
     };
   }
 
@@ -3562,6 +3621,69 @@ export default function BarberPanel() {
             </div>
           </div>
         </header>
+
+        <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
+                Mi plan
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-white">
+                Plan: {planNameLabel}
+              </h2>
+              <p
+                className={
+                  currentBusinessPlanStatus === "inactive"
+                    ? "mt-2 text-sm font-semibold text-red-100"
+                    : "mt-2 text-sm font-semibold text-barber-gold"
+                }
+              >
+                Estado: {planStatusLabel}
+              </p>
+            </div>
+            <button
+              className="cursor-not-allowed rounded-2xl border border-white/10 px-4 py-3 text-xs font-bold text-white/35"
+              disabled
+              type="button"
+            >
+              Activar suscripción próximamente
+            </button>
+          </div>
+
+          {currentBusinessPlanStatus === "demo" && (
+            <div className="mt-4 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4 text-sm leading-6 text-barber-gold">
+              <p>
+                Días restantes de prueba:{" "}
+                <span className="font-bold">{trialDaysRemaining ?? 0}</span>
+              </p>
+              <p>
+                Finaliza el:{" "}
+                <span className="font-bold">
+                  {formatPlanDate(currentBusinessTrialEndsAt)}
+                </span>
+              </p>
+            </div>
+          )}
+
+          {currentBusinessPlanStatus === "active" && (
+            <p className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold text-emerald-100">
+              Tu suscripción está activa.
+            </p>
+          )}
+
+          {currentBusinessPlanStatus === "inactive" && (
+            <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
+              Tu periodo de prueba ha terminado. Activa una suscripción para volver
+              a recibir reservas.
+            </p>
+          )}
+
+          {currentBusinessSubscriptionStatus && (
+            <p className="mt-3 text-xs font-semibold text-white/40">
+              Estado interno: {currentBusinessSubscriptionStatus}
+            </p>
+          )}
+        </section>
 
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
