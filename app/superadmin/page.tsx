@@ -18,6 +18,9 @@ type SuperadminBusiness = {
   subscription_ends_at: string | null;
   subscription_status: string | null;
   plan_name: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  stripe_price_id: string | null;
   trial_days_remaining: number | null;
   profile_image_url: string | null;
   created_at: string | null;
@@ -679,6 +682,30 @@ export default function SuperadminPage() {
                             SuscripciÃ³n:
                           </span>{" "}
                           {business.subscription_status || "Sin estado"}
+                        </p>
+                        <p className="min-w-0">
+                          <span className="font-semibold text-white/85">
+                            Cliente Stripe:
+                          </span>{" "}
+                          <span className="break-all">
+                            {business.stripe_customer_id || "Sin cliente"}
+                          </span>
+                        </p>
+                        <p className="min-w-0">
+                          <span className="font-semibold text-white/85">
+                            Suscripción Stripe:
+                          </span>{" "}
+                          <span className="break-all">
+                            {business.stripe_subscription_id || "Sin suscripción"}
+                          </span>
+                        </p>
+                        <p className="min-w-0">
+                          <span className="font-semibold text-white/85">
+                            Precio Stripe:
+                          </span>{" "}
+                          <span className="break-all">
+                            {business.stripe_price_id || "Sin precio"}
+                          </span>
                         </p>
                         <p>
                           <span className="font-semibold text-white/85">

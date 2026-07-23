@@ -720,6 +720,12 @@ export default function BarberPanel() {
   const [currentBusinessTrialEndsAt, setCurrentBusinessTrialEndsAt] = useState<
     string | null
   >(null);
+  const [subscriptionMessage, setSubscriptionMessage] = useState("");
+  const [subscriptionMessageType, setSubscriptionMessageType] = useState<
+    "success" | "error"
+  >("success");
+  const [isSubscriptionActionLoading, setIsSubscriptionActionLoading] =
+    useState(false);
   const [publicBookingLinkMessage, setPublicBookingLinkMessage] = useState("");
   const [businessImageFile, setBusinessImageFile] = useState<File | null>(null);
   const [businessImageMessage, setBusinessImageMessage] = useState("");
@@ -1009,6 +1015,9 @@ export default function BarberPanel() {
     setCurrentBusinessPlanName(null);
     setCurrentBusinessSubscriptionStatus(null);
     setCurrentBusinessTrialEndsAt(null);
+    setSubscriptionMessage("");
+    setSubscriptionMessageType("success");
+    setIsSubscriptionActionLoading(false);
     setPublicBookingLinkMessage("");
     setBusinessImageFile(null);
     setBusinessImageMessage("");
@@ -1210,6 +1219,74 @@ export default function BarberPanel() {
     setEmail("");
     setPassword("");
     clearPanelData();
+  }
+
+  async function startSubscriptionCheckout() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setSubscriptionMessageType("error");
+      setSubscriptionMessage("Inicia sesión para activar la suscripción.");
+      return;
+    }
+
+    setIsSubscriptionActionLoading(true);
+    setSubscriptionMessage("");
+
+    const response = await fetch("/api/stripe/create-checkout-session", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    });
+
+    const data = await response.json().catch(() => null);
+    setIsSubscriptionActionLoading(false);
+
+    if (!response.ok || !data?.url) {
+      setSubscriptionMessageType("error");
+      setSubscriptionMessage(data?.error ?? "No se pudo iniciar el pago.");
+      return;
+    }
+
+    window.location.href = data.url;
+  }
+
+  async function openSubscriptionPortal() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      setSubscriptionMessageType("error");
+      setSubscriptionMessage("Inicia sesión para gestionar la suscripción.");
+      return;
+    }
+
+    setIsSubscriptionActionLoading(true);
+    setSubscriptionMessage("");
+
+    const response = await fetch("/api/stripe/create-portal-session", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    });
+
+    const data = await response.json().catch(() => null);
+    setIsSubscriptionActionLoading(false);
+
+    if (!response.ok || !data?.url) {
+      setSubscriptionMessageType("error");
+      setSubscriptionMessage(
+        data?.error ?? "No se pudo abrir la gestión de la suscripción."
+      );
+      return;
+    }
+
+    window.location.href = data.url;
   }
 
   async function copyPublicBookingLink() {
@@ -3642,11 +3719,20 @@ export default function BarberPanel() {
               </p>
             </div>
             <button
-              className="cursor-not-allowed rounded-2xl border border-white/10 px-4 py-3 text-xs font-bold text-white/35"
-              disabled
+              className="rounded-2xl bg-barber-gold px-4 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isSubscriptionActionLoading}
+              onClick={
+                currentBusinessPlanStatus === "active"
+                  ? openSubscriptionPortal
+                  : startSubscriptionCheckout
+              }
               type="button"
             >
-              Activar suscripción próximamente
+              {isSubscriptionActionLoading
+                ? "Preparando..."
+                : currentBusinessPlanStatus === "active"
+                  ? "Gestionar suscripción"
+                  : "Activar suscripción"}
             </button>
           </div>
 
@@ -3667,7 +3753,7 @@ export default function BarberPanel() {
 
           {currentBusinessPlanStatus === "active" && (
             <p className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold text-emerald-100">
-              Tu suscripción está activa.
+              Plan Basic. Suscripción activa.
             </p>
           )}
 
@@ -3681,6 +3767,18 @@ export default function BarberPanel() {
           {currentBusinessSubscriptionStatus && (
             <p className="mt-3 text-xs font-semibold text-white/40">
               Estado interno: {currentBusinessSubscriptionStatus}
+            </p>
+          )}
+
+          {subscriptionMessage && (
+            <p
+              className={
+                subscriptionMessageType === "success"
+                  ? "mt-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-3 text-sm font-semibold text-barber-gold"
+                  : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100"
+              }
+            >
+              {subscriptionMessage}
             </p>
           )}
         </section>

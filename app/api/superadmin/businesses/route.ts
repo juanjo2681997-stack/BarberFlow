@@ -15,6 +15,9 @@ type Business = {
   subscription_ends_at: string | null;
   subscription_status: string | null;
   plan_name: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  stripe_price_id: string | null;
   profile_image_url: string | null;
   created_at: string | null;
 };
@@ -124,7 +127,7 @@ export async function GET(request: Request) {
   const { data: businesses, error: businessesError } = await supabaseAdmin
     .from("businesses")
     .select(
-      "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, profile_image_url, created_at"
+      "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, stripe_customer_id, stripe_subscription_id, stripe_price_id, profile_image_url, created_at"
     )
     .order("created_at", { ascending: false });
 

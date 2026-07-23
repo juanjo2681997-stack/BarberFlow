@@ -82,7 +82,7 @@ export async function PATCH(
     })
     .eq("id", id)
     .select(
-      "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, profile_image_url, created_at"
+      "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, stripe_customer_id, stripe_subscription_id, stripe_price_id, profile_image_url, created_at"
     )
     .single();
 
