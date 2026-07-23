@@ -7,6 +7,8 @@ type StripeSubscription = {
   id: string;
   customer: string;
   status: string;
+  cancel_at?: number | null;
+  cancel_at_period_end?: boolean;
   metadata?: {
     business_id?: string;
   };
@@ -14,6 +16,7 @@ type StripeSubscription = {
   current_period_end?: number;
   items?: {
     data?: Array<{
+      current_period_end?: number;
       price?: {
         id?: string;
       };
@@ -27,6 +30,30 @@ function toIsoFromSeconds(value: unknown) {
 
 function getSubscriptionPriceId(subscription: StripeSubscription) {
   return subscription.items?.data?.[0]?.price?.id ?? null;
+}
+
+function getSubscriptionCurrentPeriodEnd(subscription: StripeSubscription) {
+  return (
+    subscription.current_period_end ??
+    subscription.items?.data?.[0]?.current_period_end ??
+    null
+  );
+}
+
+function getScheduledCancellationEndDate(subscription: StripeSubscription) {
+  if (!subscription.cancel_at_period_end) {
+    return null;
+  }
+
+  return toIsoFromSeconds(
+    subscription.cancel_at ?? getSubscriptionCurrentPeriodEnd(subscription)
+  );
+}
+
+function getDeletedSubscriptionEndDate(subscription: StripeSubscription) {
+  return toIsoFromSeconds(
+    subscription.cancel_at ?? getSubscriptionCurrentPeriodEnd(subscription)
+  );
 }
 
 async function findBusinessForSubscription(
@@ -89,7 +116,7 @@ async function applySubscriptionStatus(
     subscription_started_at: toIsoFromSeconds(
       subscription.current_period_start
     ),
-    subscription_ends_at: toIsoFromSeconds(subscription.current_period_end)
+    subscription_ends_at: getScheduledCancellationEndDate(subscription)
   };
 
   if (subscription.status === "active" || subscription.status === "trialing") {
@@ -115,6 +142,10 @@ async function applySubscriptionStatus(
       .from("businesses")
       .update({
         ...baseUpdate,
+        subscription_ends_at:
+          subscription.status === "canceled"
+            ? getDeletedSubscriptionEndDate(subscription)
+            : baseUpdate.subscription_ends_at,
         plan_status: "inactive",
         public_booking_enabled: false
       })

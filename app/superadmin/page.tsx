@@ -709,6 +709,14 @@ export default function SuperadminPage() {
                         </p>
                         <p>
                           <span className="font-semibold text-white/85">
+                            Fin suscripción:
+                          </span>{" "}
+                          {business.subscription_ends_at
+                            ? formatDate(business.subscription_ends_at)
+                            : "Sin cancelación programada"}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white/85">
                             Fin de prueba:
                           </span>{" "}
                           {formatDate(business.trial_ends_at)}

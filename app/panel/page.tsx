@@ -717,6 +717,8 @@ export default function BarberPanel() {
   >(null);
   const [currentBusinessSubscriptionStatus, setCurrentBusinessSubscriptionStatus] =
     useState<string | null>(null);
+  const [currentBusinessSubscriptionEndsAt, setCurrentBusinessSubscriptionEndsAt] =
+    useState<string | null>(null);
   const [currentBusinessTrialEndsAt, setCurrentBusinessTrialEndsAt] = useState<
     string | null
   >(null);
@@ -1014,6 +1016,7 @@ export default function BarberPanel() {
     setCurrentBusinessPublicBookingEnabled(null);
     setCurrentBusinessPlanName(null);
     setCurrentBusinessSubscriptionStatus(null);
+    setCurrentBusinessSubscriptionEndsAt(null);
     setCurrentBusinessTrialEndsAt(null);
     setSubscriptionMessage("");
     setSubscriptionMessageType("success");
@@ -1125,6 +1128,7 @@ export default function BarberPanel() {
     );
     setCurrentBusinessPlanName(assignedBusiness.planName);
     setCurrentBusinessSubscriptionStatus(assignedBusiness.subscriptionStatus);
+    setCurrentBusinessSubscriptionEndsAt(assignedBusiness.subscriptionEndsAt);
     setCurrentBusinessTrialEndsAt(assignedBusiness.trialEndsAt);
     if (process.env.NODE_ENV === "development") {
       console.log("Panel business loaded:", {
@@ -1192,6 +1196,7 @@ export default function BarberPanel() {
       publicBookingEnabled: business.public_booking_enabled ?? null,
       planName: business.plan_name ?? null,
       subscriptionStatus: business.subscription_status ?? null,
+      subscriptionEndsAt: business.subscription_ends_at ?? null,
       trialEndsAt: business.trial_ends_at ?? null
     };
   }
@@ -3752,9 +3757,16 @@ export default function BarberPanel() {
           )}
 
           {currentBusinessPlanStatus === "active" && (
-            <p className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold text-emerald-100">
-              Plan Basic. Suscripción activa.
-            </p>
+            <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold leading-6 text-emerald-100">
+              <p>Plan Basic. Suscripción activa.</p>
+              {currentBusinessSubscriptionEndsAt && (
+                <p className="mt-2">
+                  Tu suscripción se cancelará el{" "}
+                  {formatPlanDate(currentBusinessSubscriptionEndsAt)}. Podrás
+                  seguir recibiendo reservas hasta esa fecha.
+                </p>
+              )}
+            </div>
           )}
 
           {currentBusinessPlanStatus === "inactive" && (
