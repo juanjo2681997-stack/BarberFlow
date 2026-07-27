@@ -24,8 +24,44 @@ type StripeSubscription = {
   };
 };
 
+type StripeInvoice = {
+  customer?: string | null;
+  subscription?: string | null;
+  parent?: {
+    subscription_details?: {
+      subscription?: string | null;
+    };
+  };
+  lines?: {
+    data?: Array<{
+      parent?: {
+        subscription_item_details?: {
+          subscription?: string | null;
+        };
+      };
+    }>;
+  };
+};
+
 function toIsoFromSeconds(value: unknown) {
   return typeof value === "number" ? new Date(value * 1000).toISOString() : null;
+}
+
+function getStripeId(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "string"
+  ) {
+    return value.id;
+  }
+
+  return null;
 }
 
 function getSubscriptionPriceId(subscription: StripeSubscription) {
@@ -53,6 +89,16 @@ function getScheduledCancellationEndDate(subscription: StripeSubscription) {
 function getDeletedSubscriptionEndDate(subscription: StripeSubscription) {
   return toIsoFromSeconds(
     subscription.cancel_at ?? getSubscriptionCurrentPeriodEnd(subscription)
+  );
+}
+
+function getInvoiceSubscriptionId(invoice: StripeInvoice) {
+  return (
+    getStripeId(invoice.subscription) ??
+    getStripeId(invoice.parent?.subscription_details?.subscription) ??
+    getStripeId(
+      invoice.lines?.data?.[0]?.parent?.subscription_item_details?.subscription
+    )
   );
 }
 
@@ -132,8 +178,22 @@ async function applySubscriptionStatus(
     return;
   }
 
+  if (subscription.status === "past_due") {
+    await supabaseAdmin
+      .from("businesses")
+      .update({
+        ...baseUpdate,
+        plan_status: "active",
+        plan_name: "basic",
+        public_booking_enabled: true
+      })
+      .eq("id", businessId);
+    return;
+  }
+
   if (
     subscription.status === "unpaid" ||
+    subscription.status === "incomplete" ||
     subscription.status === "incomplete_expired" ||
     subscription.status === "paused" ||
     subscription.status === "canceled"
@@ -192,13 +252,15 @@ async function handleInvoicePaid(supabaseAdmin: any, invoice: any) {
 }
 
 async function handleInvoicePaymentFailed(supabaseAdmin: any, invoice: any) {
-  const subscriptionId = invoice.subscription;
-  const customerId = invoice.customer;
+  const subscriptionId = getInvoiceSubscriptionId(invoice as StripeInvoice);
+  const customerId = getStripeId((invoice as StripeInvoice).customer);
 
   let query = supabaseAdmin
     .from("businesses")
     .update({
-      subscription_status: "past_due"
+      plan_status: "active",
+      subscription_status: "past_due",
+      public_booking_enabled: true
     });
 
   if (subscriptionId) {

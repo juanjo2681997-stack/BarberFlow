@@ -91,6 +91,28 @@ function getPlanBadgeClasses(planStatus: string | null) {
   return "border-barber-gold/30 bg-barber-gold/10 text-barber-gold";
 }
 
+function getSubscriptionBadgeClasses(subscriptionStatus: string | null) {
+  if (subscriptionStatus === "active" || subscriptionStatus === "trialing") {
+    return "border-emerald-400/30 bg-emerald-400/10 text-emerald-100";
+  }
+
+  if (subscriptionStatus === "past_due") {
+    return "border-orange-400/35 bg-orange-400/10 text-orange-100";
+  }
+
+  if (
+    subscriptionStatus === "unpaid" ||
+    subscriptionStatus === "incomplete" ||
+    subscriptionStatus === "incomplete_expired" ||
+    subscriptionStatus === "cancelled" ||
+    subscriptionStatus === "canceled"
+  ) {
+    return "border-red-400/30 bg-red-400/10 text-red-100";
+  }
+
+  return "border-white/10 bg-white/5 text-white/70";
+}
+
 function getSummaryFromBusinesses(businesses: SuperadminBusiness[]): Summary {
   return {
     total: businesses.length,
@@ -681,7 +703,13 @@ export default function SuperadminPage() {
                           <span className="font-semibold text-white/85">
                             SuscripciÃ³n:
                           </span>{" "}
-                          {business.subscription_status || "Sin estado"}
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getSubscriptionBadgeClasses(
+                              business.subscription_status
+                            )}`}
+                          >
+                            {business.subscription_status || "Sin estado"}
+                          </span>
                         </p>
                         <p className="min-w-0">
                           <span className="font-semibold text-white/85">

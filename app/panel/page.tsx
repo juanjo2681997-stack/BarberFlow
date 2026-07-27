@@ -857,6 +857,14 @@ export default function BarberPanel() {
       : currentBusinessPlanStatus === "active"
         ? "Activo"
         : "Inactivo";
+  const isSubscriptionPastDue =
+    currentBusinessSubscriptionStatus === "past_due";
+  const isSubscriptionUnpaid = currentBusinessSubscriptionStatus === "unpaid";
+  const isSubscriptionIncomplete =
+    currentBusinessSubscriptionStatus === "incomplete" ||
+    currentBusinessSubscriptionStatus === "incomplete_expired";
+  const shouldManageSubscription =
+    currentBusinessPlanStatus === "active" || isSubscriptionUnpaid;
 
   const todayDate = new Date();
   const tomorrowDate = new Date(todayDate);
@@ -3727,7 +3735,7 @@ export default function BarberPanel() {
               className="rounded-2xl bg-barber-gold px-4 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubscriptionActionLoading}
               onClick={
-                currentBusinessPlanStatus === "active"
+                shouldManageSubscription
                   ? openSubscriptionPortal
                   : startSubscriptionCheckout
               }
@@ -3735,7 +3743,7 @@ export default function BarberPanel() {
             >
               {isSubscriptionActionLoading
                 ? "Preparando..."
-                : currentBusinessPlanStatus === "active"
+                : shouldManageSubscription
                   ? "Gestionar suscripción"
                   : "Activar suscripción"}
             </button>
@@ -3769,10 +3777,20 @@ export default function BarberPanel() {
             </div>
           )}
 
+          {isSubscriptionPastDue && (
+            <p className="mt-4 rounded-2xl border border-orange-400/35 bg-orange-400/10 p-4 text-sm font-semibold leading-6 text-orange-100">
+              No hemos podido procesar el último pago. Actualiza tu método de
+              pago para evitar la suspensión del servicio.
+            </p>
+          )}
+
           {currentBusinessPlanStatus === "inactive" && (
             <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
-              Tu periodo de prueba ha terminado. Activa una suscripción para volver
-              a recibir reservas.
+              {isSubscriptionUnpaid
+                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para reactivar el servicio."
+                : isSubscriptionIncomplete
+                  ? "No se pudo completar la suscripción. Puedes volver a intentarlo para activar las reservas públicas."
+                  : "Tu periodo de prueba ha terminado. Activa una suscripción para volver a recibir reservas."}
             </p>
           )}
 
