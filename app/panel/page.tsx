@@ -166,6 +166,7 @@ type BusinessDetails = {
   subscription_started_at: string | null;
   subscription_ends_at: string | null;
   subscription_status: string | null;
+  payment_failed_at: string | null;
   plan_name: string | null;
   profile_image_url: string | null;
   cover_image_url: string | null;
@@ -187,6 +188,8 @@ const defaultBlockCancellationMessage =
 
 const defaultScheduleChangeCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada por un cambio en el horario de la barbería. Disculpa las molestias.";
+
+const paymentGraceHours = 48;
 
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
@@ -719,6 +722,8 @@ export default function BarberPanel() {
     useState<string | null>(null);
   const [currentBusinessSubscriptionEndsAt, setCurrentBusinessSubscriptionEndsAt] =
     useState<string | null>(null);
+  const [currentBusinessPaymentFailedAt, setCurrentBusinessPaymentFailedAt] =
+    useState<string | null>(null);
   const [currentBusinessTrialEndsAt, setCurrentBusinessTrialEndsAt] = useState<
     string | null
   >(null);
@@ -865,6 +870,32 @@ export default function BarberPanel() {
     currentBusinessSubscriptionStatus === "incomplete_expired";
   const shouldManageSubscription =
     currentBusinessPlanStatus === "active" || isSubscriptionUnpaid;
+  const paymentFailedAtTime = currentBusinessPaymentFailedAt
+    ? new Date(currentBusinessPaymentFailedAt).getTime()
+    : null;
+  const paymentGraceEndsAt =
+    paymentFailedAtTime && Number.isFinite(paymentFailedAtTime)
+      ? new Date(
+          paymentFailedAtTime + paymentGraceHours * 60 * 60 * 1000
+        ).toISOString()
+      : null;
+  const isPaymentGraceExpired =
+    isSubscriptionPastDue &&
+    paymentFailedAtTime !== null &&
+    Number.isFinite(paymentFailedAtTime) &&
+    Date.now() - paymentFailedAtTime >= paymentGraceHours * 60 * 60 * 1000;
+  const paymentGraceHoursRemaining =
+    isSubscriptionPastDue && paymentFailedAtTime && Number.isFinite(paymentFailedAtTime)
+      ? Math.max(
+          0,
+          Math.ceil(
+            (paymentFailedAtTime +
+              paymentGraceHours * 60 * 60 * 1000 -
+              Date.now()) /
+              (1000 * 60 * 60)
+          )
+        )
+      : null;
 
   const todayDate = new Date();
   const tomorrowDate = new Date(todayDate);
@@ -1025,6 +1056,7 @@ export default function BarberPanel() {
     setCurrentBusinessPlanName(null);
     setCurrentBusinessSubscriptionStatus(null);
     setCurrentBusinessSubscriptionEndsAt(null);
+    setCurrentBusinessPaymentFailedAt(null);
     setCurrentBusinessTrialEndsAt(null);
     setSubscriptionMessage("");
     setSubscriptionMessageType("success");
@@ -1137,6 +1169,7 @@ export default function BarberPanel() {
     setCurrentBusinessPlanName(assignedBusiness.planName);
     setCurrentBusinessSubscriptionStatus(assignedBusiness.subscriptionStatus);
     setCurrentBusinessSubscriptionEndsAt(assignedBusiness.subscriptionEndsAt);
+    setCurrentBusinessPaymentFailedAt(assignedBusiness.paymentFailedAt);
     setCurrentBusinessTrialEndsAt(assignedBusiness.trialEndsAt);
     if (process.env.NODE_ENV === "development") {
       console.log("Panel business loaded:", {
@@ -1183,7 +1216,7 @@ export default function BarberPanel() {
     const { data: businessData, error: businessError } = await supabase
       .from("businesses")
       .select(
-        "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, plan_name, profile_image_url, cover_image_url"
+        "id, name, slug, plan_status, public_booking_enabled, trial_started_at, trial_ends_at, subscription_started_at, subscription_ends_at, subscription_status, payment_failed_at, plan_name, profile_image_url, cover_image_url"
       )
       .eq("id", assignment.business_id)
       .maybeSingle();
@@ -1205,6 +1238,7 @@ export default function BarberPanel() {
       planName: business.plan_name ?? null,
       subscriptionStatus: business.subscription_status ?? null,
       subscriptionEndsAt: business.subscription_ends_at ?? null,
+      paymentFailedAt: business.payment_failed_at ?? null,
       trialEndsAt: business.trial_ends_at ?? null
     };
   }
@@ -3779,8 +3813,9 @@ export default function BarberPanel() {
 
           {isSubscriptionPastDue && (
             <p className="mt-4 rounded-2xl border border-orange-400/35 bg-orange-400/10 p-4 text-sm font-semibold leading-6 text-orange-100">
-              No hemos podido procesar el último pago. Actualiza tu método de
-              pago para evitar la suspensión del servicio.
+              {isPaymentGraceExpired
+                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para continuar utilizando BarberFlow."
+                : `No hemos podido procesar el último pago. Dispones de ${paymentGraceHoursRemaining ?? paymentGraceHours} horas para actualizar tu método de pago antes de que se suspenda temporalmente el servicio.`}
             </p>
           )}
 
@@ -3813,6 +3848,24 @@ export default function BarberPanel() {
           )}
         </section>
 
+        {isPaymentGraceExpired ? (
+          <section className="mt-8 rounded-2xl border border-red-400/30 bg-red-400/10 p-5 text-sm font-semibold leading-6 text-red-100">
+            <h2 className="text-xl font-bold text-white">
+              Suscripción suspendida
+            </h2>
+            <p className="mt-3">
+              Tu suscripción está suspendida por impago. Actualiza tu método de
+              pago para continuar utilizando BarberFlow.
+            </p>
+            {paymentGraceEndsAt && (
+              <p className="mt-2 text-red-100/80">
+                El periodo de gracia finalizó el{" "}
+                {formatPlanDate(paymentGraceEndsAt)}.
+              </p>
+            )}
+          </section>
+        ) : (
+          <>
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
@@ -5810,6 +5863,8 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
+          </>
+        )}
 
       </section>
     </main>

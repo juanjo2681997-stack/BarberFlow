@@ -1132,7 +1132,9 @@ export default function Home() {
     if (!isBusinessAvailableForBooking(business)) {
       setCurrentBusiness(null);
       setCurrentBusinessId(null);
-      setBusinessLoadMessage("Esta barbería no está disponible para reservas.");
+      setBusinessLoadMessage(
+        "Las reservas online no están disponibles temporalmente."
+      );
       setIsLoadingSchedule(false);
       setIsLoadingServices(false);
       return;

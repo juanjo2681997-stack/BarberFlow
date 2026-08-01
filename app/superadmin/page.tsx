@@ -17,6 +17,7 @@ type SuperadminBusiness = {
   subscription_started_at: string | null;
   subscription_ends_at: string | null;
   subscription_status: string | null;
+  payment_failed_at: string | null;
   plan_name: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
@@ -50,6 +51,7 @@ const emptySummary: Summary = {
 };
 
 const planStatuses: PlanStatus[] = ["demo", "active", "inactive"];
+const paymentGraceHours = 48;
 
 function getInitial(name: string | null) {
   return (name?.trim().charAt(0) || "B").toUpperCase();
@@ -111,6 +113,31 @@ function getSubscriptionBadgeClasses(subscriptionStatus: string | null) {
   }
 
   return "border-white/10 bg-white/5 text-white/70";
+}
+
+function getPaymentGraceStatus(business: SuperadminBusiness) {
+  if (business.subscription_status !== "past_due" || !business.payment_failed_at) {
+    return "Sin impago activo";
+  }
+
+  const paymentFailedTime = new Date(business.payment_failed_at).getTime();
+
+  if (!Number.isFinite(paymentFailedTime)) {
+    return "Impago sin fecha válida";
+  }
+
+  const graceEndsAt = paymentFailedTime + paymentGraceHours * 60 * 60 * 1000;
+
+  if (Date.now() >= graceEndsAt) {
+    return "Suspendida por superar 48h";
+  }
+
+  const hoursRemaining = Math.max(
+    0,
+    Math.ceil((graceEndsAt - Date.now()) / (1000 * 60 * 60))
+  );
+
+  return `En periodo de gracia: ${hoursRemaining}h restantes`;
 }
 
 function getSummaryFromBusinesses(businesses: SuperadminBusiness[]): Summary {
@@ -742,6 +769,18 @@ export default function SuperadminPage() {
                           {business.subscription_ends_at
                             ? formatDate(business.subscription_ends_at)
                             : "Sin cancelación programada"}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white/85">
+                            Pago fallido:
+                          </span>{" "}
+                          {formatDate(business.payment_failed_at)}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-white/85">
+                            Gracia:
+                          </span>{" "}
+                          {getPaymentGraceStatus(business)}
                         </p>
                         <p>
                           <span className="font-semibold text-white/85">

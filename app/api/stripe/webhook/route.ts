@@ -3,6 +3,8 @@ import { getSupabaseAdmin, stripe, stripeRequest } from "../_utils";
 
 export const runtime = "nodejs";
 
+const PAYMENT_GRACE_HOURS = 48;
+
 type StripeSubscription = {
   id: string;
   customer: string;
@@ -92,6 +94,19 @@ function getDeletedSubscriptionEndDate(subscription: StripeSubscription) {
   );
 }
 
+function isPaymentGraceExpired(paymentFailedAt: string | null) {
+  if (!paymentFailedAt) {
+    return false;
+  }
+
+  const paymentFailedTime = new Date(paymentFailedAt).getTime();
+
+  return (
+    Number.isFinite(paymentFailedTime) &&
+    Date.now() - paymentFailedTime >= PAYMENT_GRACE_HOURS * 60 * 60 * 1000
+  );
+}
+
 function getInvoiceSubscriptionId(invoice: StripeInvoice) {
   return (
     getStripeId(invoice.subscription) ??
@@ -100,6 +115,24 @@ function getInvoiceSubscriptionId(invoice: StripeInvoice) {
       invoice.lines?.data?.[0]?.parent?.subscription_item_details?.subscription
     )
   );
+}
+
+async function getExistingPaymentFailedAt(
+  supabaseAdmin: any,
+  businessId: string
+) {
+  const { data, error } = await supabaseAdmin
+    .from("businesses")
+    .select("payment_failed_at")
+    .eq("id", businessId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error loading payment_failed_at:", error);
+    return null;
+  }
+
+  return data?.payment_failed_at ?? null;
 }
 
 async function findBusinessForSubscription(
@@ -172,11 +205,21 @@ async function applySubscriptionStatus(
         ...baseUpdate,
         plan_status: "active",
         plan_name: "basic",
-        public_booking_enabled: true
+        public_booking_enabled: true,
+        payment_failed_at: null
       })
       .eq("id", businessId);
     return;
   }
+
+  const existingPaymentFailedAt =
+    subscription.status === "past_due"
+      ? await getExistingPaymentFailedAt(supabaseAdmin, businessId)
+      : null;
+  const nextPaymentFailedAt =
+    subscription.status === "past_due"
+      ? existingPaymentFailedAt ?? new Date().toISOString()
+      : null;
 
   if (subscription.status === "past_due") {
     await supabaseAdmin
@@ -185,7 +228,8 @@ async function applySubscriptionStatus(
         ...baseUpdate,
         plan_status: "active",
         plan_name: "basic",
-        public_booking_enabled: true
+        public_booking_enabled: !isPaymentGraceExpired(nextPaymentFailedAt),
+        payment_failed_at: nextPaymentFailedAt
       })
       .eq("id", businessId);
     return;
@@ -236,7 +280,7 @@ async function handleCheckoutCompleted(supabaseAdmin: any, session: any) {
 }
 
 async function handleInvoicePaid(supabaseAdmin: any, invoice: any) {
-  const subscriptionId = invoice.subscription;
+  const subscriptionId = getInvoiceSubscriptionId(invoice as StripeInvoice);
 
   if (!subscriptionId) {
     return;
@@ -254,24 +298,36 @@ async function handleInvoicePaid(supabaseAdmin: any, invoice: any) {
 async function handleInvoicePaymentFailed(supabaseAdmin: any, invoice: any) {
   const subscriptionId = getInvoiceSubscriptionId(invoice as StripeInvoice);
   const customerId = getStripeId((invoice as StripeInvoice).customer);
-
-  let query = supabaseAdmin
+  let businessQuery = supabaseAdmin
     .from("businesses")
-    .update({
-      plan_status: "active",
-      subscription_status: "past_due",
-      public_booking_enabled: true
-    });
+    .select("id, payment_failed_at");
 
   if (subscriptionId) {
-    query = query.eq("stripe_subscription_id", subscriptionId);
+    businessQuery = businessQuery.eq("stripe_subscription_id", subscriptionId);
   } else if (customerId) {
-    query = query.eq("stripe_customer_id", customerId);
+    businessQuery = businessQuery.eq("stripe_customer_id", customerId);
   } else {
     return;
   }
 
-  await query;
+  const { data: business, error: businessError } = await businessQuery.maybeSingle();
+
+  if (businessError || !business) {
+    console.error("Error finding business for failed invoice:", businessError);
+    return;
+  }
+
+  await supabaseAdmin
+    .from("businesses")
+    .update({
+      plan_status: "active",
+      subscription_status: "past_due",
+      public_booking_enabled: !isPaymentGraceExpired(
+        business.payment_failed_at ?? new Date().toISOString()
+      ),
+      payment_failed_at: business.payment_failed_at ?? new Date().toISOString()
+    })
+    .eq("id", business.id);
 }
 
 export async function POST(request: Request) {
