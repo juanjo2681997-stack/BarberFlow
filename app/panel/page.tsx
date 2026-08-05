@@ -132,6 +132,40 @@ type Review = {
   updated_at: string;
 };
 
+type EmployeeRole = "owner" | "manager" | "barber" | "receptionist";
+
+type Employee = {
+  id: string;
+  business_id: string;
+  user_id: string | null;
+  display_name: string;
+  email: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  role: EmployeeRole;
+  is_active: boolean;
+  login_enabled: boolean;
+  receives_bookings: boolean;
+  calendar_color: string | null;
+  created_at: string;
+  updated_at: string;
+  service_ids: string[];
+  service_count: number;
+};
+
+type EmployeeForm = {
+  display_name: string;
+  email: string;
+  phone: string;
+  avatar_url: string;
+  role: EmployeeRole;
+  is_active: boolean;
+  receives_bookings: boolean;
+  login_enabled: boolean;
+  calendar_color: string;
+  service_ids: string[];
+};
+
 type BusinessSettings = {
   id: string;
   business_name: string;
@@ -153,6 +187,7 @@ type BusinessSettings = {
 type BusinessUserAssignment = {
   business_id: string;
   role: string | null;
+  employee_id: string | null;
 };
 
 type BusinessDetails = {
@@ -174,6 +209,7 @@ type BusinessDetails = {
 
 type PanelSectionKey =
   | "dayAgenda"
+  | "employees"
   | "reviews"
   | "history"
   | "manual"
@@ -234,6 +270,35 @@ const appointmentStatusActions: Array<{
   { status: "no_show", label: "No asistió" },
   { status: "pending", label: "Pendiente" }
 ];
+
+const employeeRoleLabels: Record<EmployeeRole, string> = {
+  owner: "Owner",
+  manager: "Manager",
+  barber: "Barbero",
+  receptionist: "Recepción"
+};
+
+const employeeRoleOptions: Array<{
+  value: EmployeeRole;
+  label: string;
+}> = [
+  { value: "manager", label: "Manager" },
+  { value: "barber", label: "Barbero" },
+  { value: "receptionist", label: "Recepción" }
+];
+
+const initialEmployeeForm: EmployeeForm = {
+  display_name: "",
+  email: "",
+  phone: "",
+  avatar_url: "",
+  role: "barber",
+  is_active: true,
+  receives_bookings: true,
+  login_enabled: false,
+  calendar_color: "",
+  service_ids: []
+};
 
 function isAppointmentCancelled(appointment: {
   appointment_status?: string | null;
@@ -694,6 +759,7 @@ export default function BarberPanel() {
     useState<BlockCancelledAppointment[]>([]);
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [blockedTimes, setBlockedTimes] = useState<BlockedTime[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
     defaultBusinessSettings
@@ -749,6 +815,7 @@ export default function BarberPanel() {
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingBlockedTimes, setIsLoadingBlockedTimes] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [hasCustomBlockCancellationMessage, setHasCustomBlockCancellationMessage] =
@@ -761,6 +828,19 @@ export default function BarberPanel() {
   const [reviewMessageType, setReviewMessageType] = useState<"success" | "error">(
     "success"
   );
+  const [employeeMessage, setEmployeeMessage] = useState("");
+  const [employeeMessageType, setEmployeeMessageType] = useState<
+    "success" | "error"
+  >("success");
+  const [employeeForm, setEmployeeForm] =
+    useState<EmployeeForm>(initialEmployeeForm);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [isSavingEmployee, setIsSavingEmployee] = useState(false);
+  const [canManageEmployees, setCanManageEmployees] = useState(false);
+  const [currentPanelEmployeeId, setCurrentPanelEmployeeId] = useState<
+    string | null
+  >(null);
+  const [currentPanelRole, setCurrentPanelRole] = useState<string | null>(null);
   const [historyStatusFilter, setHistoryStatusFilter] =
     useState<HistoryStatusFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState("");
@@ -818,6 +898,7 @@ export default function BarberPanel() {
   const [isLoadingEditHours, setIsLoadingEditHours] = useState(false);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
+    employees: true,
     reviews: false,
     history: false,
     manual: true,
@@ -1042,6 +1123,7 @@ export default function BarberPanel() {
     loadBusinessSettings(true, businessId);
     loadWorkingHours(businessId);
     loadServices(businessId);
+    loadEmployees();
     loadBlockedTimes(businessId);
   }
 
@@ -1069,6 +1151,7 @@ export default function BarberPanel() {
     setAppointments([]);
     setHistoryAppointments([]);
     setReviews([]);
+    setEmployees([]);
     setPendingCancellationNotifications([]);
     setWorkingHours([]);
     setServices([]);
@@ -1080,10 +1163,19 @@ export default function BarberPanel() {
     setIsLoadingManualHours(false);
     setIsLoadingHistory(false);
     setIsLoadingReviews(false);
+    setIsLoadingEmployees(false);
     setHistoryMessage("");
     setHistoryMessageType("success");
     setReviewMessage("");
     setReviewMessageType("success");
+    setEmployeeMessage("");
+    setEmployeeMessageType("success");
+    setEmployeeForm(initialEmployeeForm);
+    setEditingEmployeeId(null);
+    setIsSavingEmployee(false);
+    setCanManageEmployees(false);
+    setCurrentPanelEmployeeId(null);
+    setCurrentPanelRole(null);
     setHasCustomBlockCancellationMessage(false);
     setHistoryStatusFilter("all");
     setHistoryDateFrom("");
@@ -1805,6 +1897,230 @@ export default function BarberPanel() {
     setBusinessForm(nextBusinessSettings);
     setHasCustomBlockCancellationMessage(true);
     setBlockMessage("Mensaje guardado correctamente");
+  }
+
+  async function loadEmployees() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setIsLoadingEmployees(false);
+      return;
+    }
+
+    setIsLoadingEmployees(true);
+
+    const response = await fetch("/api/employees", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+    setIsLoadingEmployees(false);
+
+    if (!response.ok) {
+      console.error("Error loading employees:", result?.error ?? response.statusText);
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudieron cargar los empleados.");
+      return;
+    }
+
+    setEmployees((result?.employees ?? []) as Employee[]);
+    setCanManageEmployees(result?.can_manage_employees === true);
+    setCurrentPanelEmployeeId(result?.current_employee_id ?? null);
+    setCurrentPanelRole(result?.current_role ?? null);
+  }
+
+  function updateEmployeeForm<K extends keyof EmployeeForm>(
+    field: K,
+    value: EmployeeForm[K]
+  ) {
+    setEmployeeForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setEmployeeMessage("");
+  }
+
+  function toggleEmployeeService(serviceId: string) {
+    setEmployeeForm((currentForm) => {
+      const hasService = currentForm.service_ids.includes(serviceId);
+
+      return {
+        ...currentForm,
+        service_ids: hasService
+          ? currentForm.service_ids.filter((currentId) => currentId !== serviceId)
+          : [...currentForm.service_ids, serviceId]
+      };
+    });
+    setEmployeeMessage("");
+  }
+
+  function startCreatingEmployee() {
+    setEditingEmployeeId(null);
+    setEmployeeForm(initialEmployeeForm);
+    setEmployeeMessage("");
+  }
+
+  function startEditingEmployee(employee: Employee) {
+    setEditingEmployeeId(employee.id);
+    setEmployeeForm({
+      display_name: employee.display_name,
+      email: employee.email ?? "",
+      phone: employee.phone ?? "",
+      avatar_url: employee.avatar_url ?? "",
+      role: employee.role,
+      is_active: employee.is_active,
+      receives_bookings: employee.receives_bookings,
+      login_enabled: employee.login_enabled,
+      calendar_color: employee.calendar_color ?? "",
+      service_ids: employee.service_ids ?? []
+    });
+    setEmployeeMessage("");
+  }
+
+  function cancelEmployeeEdit() {
+    setEditingEmployeeId(null);
+    setEmployeeForm(initialEmployeeForm);
+    setEmployeeMessage("");
+  }
+
+  async function saveEmployee() {
+    if (!employeeForm.display_name.trim()) {
+      setEmployeeMessageType("error");
+      setEmployeeMessage("El nombre del empleado es obligatorio.");
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const selectedEmployee = editingEmployeeId
+      ? employees.find((employee) => employee.id === editingEmployeeId)
+      : null;
+    const roleToSave =
+      selectedEmployee?.role === "owner" ? "owner" : employeeForm.role;
+
+    setIsSavingEmployee(true);
+
+    const response = await fetch(
+      editingEmployeeId ? `/api/employees/${editingEmployeeId}` : "/api/employees",
+      {
+        method: editingEmployeeId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          display_name: employeeForm.display_name.trim(),
+          email: employeeForm.email.trim(),
+          phone: employeeForm.phone.trim(),
+          avatar_url: employeeForm.avatar_url.trim(),
+          role: roleToSave,
+          is_active: employeeForm.is_active,
+          receives_bookings:
+            employeeForm.is_active && employeeForm.receives_bookings,
+          login_enabled: employeeForm.login_enabled,
+          calendar_color: employeeForm.calendar_color.trim(),
+          service_ids: employeeForm.service_ids
+        })
+      }
+    );
+
+    const result = await response.json().catch(() => null);
+    setIsSavingEmployee(false);
+
+    if (!response.ok) {
+      console.error("Error saving employee:", result?.error ?? response.statusText);
+      setEmployeeMessageType("error");
+      setEmployeeMessage(result?.error ?? "No se pudo guardar el empleado.");
+      return;
+    }
+
+    setEmployeeMessageType("success");
+    setEmployeeMessage(
+      editingEmployeeId
+        ? "Empleado actualizado correctamente."
+        : "Empleado creado correctamente."
+    );
+    setEditingEmployeeId(null);
+    setEmployeeForm(initialEmployeeForm);
+    await loadEmployees();
+  }
+
+  async function toggleEmployeeActive(employee: Employee) {
+    const nextIsActive = !employee.is_active;
+
+    if (!nextIsActive) {
+      const confirmed = window.confirm(
+        "¿Seguro que quieres desactivar este empleado? Mantendrá sus datos históricos y dejará de recibir reservas."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(`/api/employees/${employee.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        display_name: employee.display_name,
+        email: employee.email ?? "",
+        phone: employee.phone ?? "",
+        avatar_url: employee.avatar_url ?? "",
+        role: employee.role,
+        is_active: nextIsActive,
+        receives_bookings: nextIsActive ? employee.receives_bookings : false,
+        login_enabled: employee.login_enabled,
+        calendar_color: employee.calendar_color ?? "",
+        service_ids: employee.service_ids ?? []
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error updating employee status:", result?.error ?? response.statusText);
+      setEmployeeMessageType("error");
+      setEmployeeMessage(result?.error ?? "No se pudo actualizar el empleado.");
+      return;
+    }
+
+    setEmployeeMessageType("success");
+    setEmployeeMessage(
+      nextIsActive
+        ? "Empleado reactivado correctamente."
+        : "Empleado desactivado correctamente."
+    );
+    await loadEmployees();
+  }
+
+  function getEmployeeServiceNames(employee: Employee) {
+    const serviceNames = employee.service_ids
+      .map((serviceId) => services.find((service) => service.id === serviceId)?.name)
+      .filter((serviceName): serviceName is string => Boolean(serviceName));
+
+    return serviceNames.length > 0 ? serviceNames.join(", ") : "Sin servicios asignados";
   }
 
   async function loadAppointments(businessId = currentBusinessId) {
@@ -3866,6 +4182,369 @@ export default function BarberPanel() {
           </section>
         ) : (
           <>
+        <section className="mt-8 border-t border-white/10 pt-6">
+          {renderAccordionHeader("employees", "Empleados")}
+          {openSections.employees && (
+            <div className="mt-4 space-y-5">
+              {employeeMessage && (
+                <p
+                  className={
+                    employeeMessageType === "success"
+                      ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                      : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  }
+                >
+                  {employeeMessage}
+                </p>
+              )}
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-lg font-bold text-white">
+                      Equipo de la barbería
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-white/65">
+                      Gestiona los profesionales del negocio sin cambiar todavía
+                      la agenda pública ni la disponibilidad actual.
+                    </p>
+                    {currentPanelRole && (
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-white/40">
+                        Tu rol: {employeeRoleLabels[currentPanelRole as EmployeeRole] ?? currentPanelRole}
+                      </p>
+                    )}
+                  </div>
+                  {canManageEmployees && (
+                    <button
+                      className="rounded-2xl border border-barber-gold/50 px-4 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
+                      onClick={startCreatingEmployee}
+                      type="button"
+                    >
+                      Nuevo empleado
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {canManageEmployees && (
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        {editingEmployeeId ? "Editar empleado" : "Crear empleado"}
+                      </h3>
+                      <p className="mt-1 text-xs font-semibold text-white/50">
+                        No se crean cuentas Auth ni invitaciones en esta fase.
+                      </p>
+                    </div>
+                    {editingEmployeeId && (
+                      <button
+                        className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/65 transition hover:border-barber-gold/50 hover:text-barber-gold"
+                        onClick={cancelEmployeeEdit}
+                        type="button"
+                      >
+                        Cancelar edición
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Nombre visible
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEmployeeForm("display_name", event.target.value)
+                        }
+                        placeholder="Nombre del empleado"
+                        type="text"
+                        value={employeeForm.display_name}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Email
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEmployeeForm("email", event.target.value)
+                        }
+                        placeholder="empleado@email.com"
+                        type="email"
+                        value={employeeForm.email}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Teléfono
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEmployeeForm("phone", event.target.value)
+                        }
+                        placeholder="600 000 000"
+                        type="tel"
+                        value={employeeForm.phone}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Avatar URL
+                      </span>
+                      <input
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEmployeeForm("avatar_url", event.target.value)
+                        }
+                        placeholder="https://..."
+                        type="url"
+                        value={employeeForm.avatar_url}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Rol
+                      </span>
+                      <select
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={
+                          editingEmployeeId !== null &&
+                          employees.find((employee) => employee.id === editingEmployeeId)
+                            ?.role === "owner"
+                        }
+                        onChange={(event) =>
+                          updateEmployeeForm(
+                            "role",
+                            event.target.value as EmployeeRole
+                          )
+                        }
+                        value={employeeForm.role}
+                      >
+                        {editingEmployeeId &&
+                          employees.find((employee) => employee.id === editingEmployeeId)
+                            ?.role === "owner" && (
+                            <option className="bg-barber-gray" value="owner">
+                              Owner
+                            </option>
+                          )}
+                        {employeeRoleOptions.map((roleOption) => (
+                          <option
+                            className="bg-barber-gray"
+                            key={roleOption.value}
+                            value={roleOption.value}
+                          >
+                            {roleOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-xs font-semibold text-white/60">
+                        Color de calendario
+                      </span>
+                      <input
+                        className="h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-barber-gold"
+                        onChange={(event) =>
+                          updateEmployeeForm("calendar_color", event.target.value)
+                        }
+                        type="color"
+                        value={employeeForm.calendar_color || "#d8a24a"}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/70">
+                      <input
+                        checked={employeeForm.is_active}
+                        className="h-4 w-4 accent-[#d8a24a]"
+                        onChange={(event) =>
+                          updateEmployeeForm("is_active", event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      Activo
+                    </label>
+                    <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/70">
+                      <input
+                        checked={employeeForm.receives_bookings}
+                        className="h-4 w-4 accent-[#d8a24a]"
+                        onChange={(event) =>
+                          updateEmployeeForm(
+                            "receives_bookings",
+                            event.target.checked
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      Recibe reservas
+                    </label>
+                    <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/70">
+                      <input
+                        checked={employeeForm.login_enabled}
+                        className="h-4 w-4 accent-[#d8a24a]"
+                        onChange={(event) =>
+                          updateEmployeeForm("login_enabled", event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      Acceso al panel
+                    </label>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <p className="text-sm font-bold text-white">
+                      Servicios que realiza
+                    </p>
+                    {services.length === 0 ? (
+                      <p className="mt-3 text-sm text-white/55">
+                        No hay servicios creados todavía.
+                      </p>
+                    ) : (
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {services.map((service) => (
+                          <label
+                            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/70"
+                            key={service.id}
+                          >
+                            <input
+                              checked={employeeForm.service_ids.includes(service.id)}
+                              className="h-4 w-4 accent-[#d8a24a]"
+                              onChange={() => toggleEmployeeService(service.id)}
+                              type="checkbox"
+                            />
+                            {service.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSavingEmployee}
+                    onClick={saveEmployee}
+                    type="button"
+                  >
+                    {isSavingEmployee ? "Guardando..." : "Guardar empleado"}
+                  </button>
+                </div>
+              )}
+
+              {isLoadingEmployees ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  Cargando empleados...
+                </p>
+              ) : employees.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
+                  No hay empleados creados todavía.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {employees.map((employee) => (
+                    <article
+                      className={
+                        employee.is_active
+                          ? "rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                          : "rounded-2xl border border-white/10 bg-white/[0.025] p-4 opacity-70"
+                      }
+                      key={employee.id}
+                    >
+                      <div className="flex items-start gap-4">
+                        {employee.avatar_url?.trim() ? (
+                          <img
+                            alt={employee.display_name}
+                            className="h-14 w-14 rounded-full border border-barber-gold/25 object-cover"
+                            src={employee.avatar_url}
+                          />
+                        ) : (
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-barber-gold/25 bg-barber-gold/10 text-xl font-bold text-barber-gold">
+                            {getProfileInitial(employee.display_name)}
+                          </div>
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-base font-bold text-white">
+                            {employee.display_name}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-barber-gold">
+                            {employeeRoleLabels[employee.role]}
+                          </p>
+                          {employee.id === currentPanelEmployeeId && (
+                            <p className="mt-1 text-xs font-semibold text-white/45">
+                              Este es tu perfil de empleado.
+                            </p>
+                          )}
+                          <div className="mt-3 space-y-1 text-sm leading-6 text-white/65">
+                            <p>Email: {employee.email || "Sin email"}</p>
+                            <p>Teléfono: {employee.phone || "Sin teléfono"}</p>
+                            <p>{getEmployeeServiceNames(employee)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/65">
+                          {employee.is_active ? "Activo" : "Inactivo"}
+                        </span>
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/65">
+                          {employee.receives_bookings
+                            ? "Recibe reservas"
+                            : "No recibe reservas"}
+                        </span>
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/65">
+                          {employee.login_enabled
+                            ? "Acceso al panel"
+                            : "Sin acceso al panel"}
+                        </span>
+                        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/65">
+                          {employee.user_id
+                            ? "Cuenta vinculada"
+                            : employee.login_enabled
+                              ? "Invitación pendiente"
+                              : "Sin cuenta vinculada"}
+                        </span>
+                      </div>
+
+                      {canManageEmployees && (
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <button
+                            className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
+                            onClick={() => startEditingEmployee(employee)}
+                            type="button"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            className={
+                              employee.is_active
+                                ? "rounded-full border border-red-400/45 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98]"
+                                : "rounded-full border border-green-400/45 px-3 py-2 text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                            }
+                            onClick={() => toggleEmployeeActive(employee)}
+                            type="button"
+                          >
+                            {employee.is_active ? "Desactivar" : "Reactivar"}
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (

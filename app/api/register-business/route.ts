@@ -15,6 +15,14 @@ type RegisterBusinessBody = {
   instagram_url?: string;
 };
 
+type CreatedEmployee = {
+  id: string;
+};
+
+type CreatedService = {
+  id: string;
+};
+
 const defaultBlockCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora}, ha sido cancelada porque la barbería no estará disponible en ese horario. Disculpa las molestias.";
 
@@ -259,6 +267,41 @@ export async function POST(request: Request) {
       throw new Error(businessUserError.message);
     }
 
+    const { data: ownerEmployee, error: employeeError } = await supabase
+      .from("employees")
+      .insert({
+        business_id: businessId,
+        user_id: userId,
+        display_name: ownerName,
+        email,
+        role: "owner",
+        is_active: true,
+        login_enabled: true,
+        receives_bookings: true
+      })
+      .select("id")
+      .single();
+
+    if (employeeError || !ownerEmployee) {
+      throw new Error(
+        employeeError?.message ?? "No se pudo crear el empleado propietario."
+      );
+    }
+
+    const employeeId = (ownerEmployee as CreatedEmployee).id;
+
+    const { error: linkEmployeeError } = await supabase
+      .from("business_users")
+      .update({
+        employee_id: employeeId
+      })
+      .eq("business_id", businessId)
+      .eq("user_id", userId);
+
+    if (linkEmployeeError) {
+      throw new Error(linkEmployeeError.message);
+    }
+
     const { error: settingsError } = await supabase
       .from("business_settings")
       .insert({
@@ -283,16 +326,38 @@ export async function POST(request: Request) {
       throw new Error(settingsError.message);
     }
 
-    const { error: servicesError } = await supabase.from("services").insert(
-      initialServices.map((service) => ({
-        ...service,
-        is_active: true,
-        business_id: businessId
-      }))
-    );
+    const { data: createdServices, error: servicesError } = await supabase
+      .from("services")
+      .insert(
+        initialServices.map((service) => ({
+          ...service,
+          is_active: true,
+          business_id: businessId
+        }))
+      )
+      .select("id");
 
     if (servicesError) {
       throw new Error(servicesError.message);
+    }
+
+    const services = (createdServices ?? []) as CreatedService[];
+
+    if (services.length > 0) {
+      const { error: employeeServicesError } = await supabase
+        .from("employee_services")
+        .insert(
+          services.map((service) => ({
+            business_id: businessId,
+            employee_id: employeeId,
+            service_id: service.id,
+            is_enabled: true
+          }))
+        );
+
+      if (employeeServicesError) {
+        throw new Error(employeeServicesError.message);
+      }
     }
 
     const { error: workingHoursError } = await supabase
@@ -306,6 +371,20 @@ export async function POST(request: Request) {
 
     if (workingHoursError) {
       throw new Error(workingHoursError.message);
+    }
+
+    const { error: employeeWorkingHoursError } = await supabase
+      .from("employee_working_hours")
+      .insert(
+        initialWorkingHours.map((workingHour) => ({
+          ...workingHour,
+          business_id: businessId,
+          employee_id: employeeId
+        }))
+      );
+
+    if (employeeWorkingHoursError) {
+      throw new Error(employeeWorkingHoursError.message);
     }
 
     return NextResponse.json({
