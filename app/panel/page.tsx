@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type Appointment = {
@@ -835,12 +835,15 @@ export default function BarberPanel() {
   const [employeeForm, setEmployeeForm] =
     useState<EmployeeForm>(initialEmployeeForm);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [isSavingEmployee, setIsSavingEmployee] = useState(false);
+  const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
   const [canManageEmployees, setCanManageEmployees] = useState(false);
   const [currentPanelEmployeeId, setCurrentPanelEmployeeId] = useState<
     string | null
   >(null);
   const [currentPanelRole, setCurrentPanelRole] = useState<string | null>(null);
+  const [currentPanelUserId, setCurrentPanelUserId] = useState<string | null>(null);
   const [historyStatusFilter, setHistoryStatusFilter] =
     useState<HistoryStatusFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState("");
@@ -896,6 +899,7 @@ export default function BarberPanel() {
     useState<EditAppointmentForm | null>(null);
   const [editAvailableHours, setEditAvailableHours] = useState<string[]>([]);
   const [isLoadingEditHours, setIsLoadingEditHours] = useState(false);
+  const employeeFormRef = useRef<HTMLDivElement | null>(null);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
     employees: true,
@@ -1052,6 +1056,9 @@ export default function BarberPanel() {
           (cancelledAppointment) => cancelledAppointment.id === appointment.id
         )
     );
+  const editingEmployee = editingEmployeeId
+    ? employees.find((employee) => employee.id === editingEmployeeId) ?? null
+    : null;
 
   useEffect(() => {
     checkSession();
@@ -1172,10 +1179,13 @@ export default function BarberPanel() {
     setEmployeeMessageType("success");
     setEmployeeForm(initialEmployeeForm);
     setEditingEmployeeId(null);
+    setEmployeeToDelete(null);
     setIsSavingEmployee(false);
+    setIsDeletingEmployee(false);
     setCanManageEmployees(false);
     setCurrentPanelEmployeeId(null);
     setCurrentPanelRole(null);
+    setCurrentPanelUserId(null);
     setHasCustomBlockCancellationMessage(false);
     setHistoryStatusFilter("all");
     setHistoryDateFrom("");
@@ -1251,6 +1261,7 @@ export default function BarberPanel() {
     }
 
     setCurrentBusinessId(assignedBusiness.businessId);
+    setCurrentPanelUserId(user.id);
     setCurrentBusinessName(assignedBusiness.businessName);
     setCurrentBusinessSlug(assignedBusiness.businessSlug);
     setCurrentBusinessProfileImageUrl(assignedBusiness.profileImageUrl);
@@ -1963,7 +1974,20 @@ export default function BarberPanel() {
     setEmployeeMessage("");
   }
 
+  function scrollToEmployeeForm() {
+    window.setTimeout(() => {
+      employeeFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 0);
+  }
+
   function startEditingEmployee(employee: Employee) {
+    setOpenSections((currentSections) => ({
+      ...currentSections,
+      employees: true
+    }));
     setEditingEmployeeId(employee.id);
     setEmployeeForm({
       display_name: employee.display_name,
@@ -1978,6 +2002,7 @@ export default function BarberPanel() {
       service_ids: employee.service_ids ?? []
     });
     setEmployeeMessage("");
+    scrollToEmployeeForm();
   }
 
   function cancelEmployeeEdit() {
@@ -2052,6 +2077,64 @@ export default function BarberPanel() {
     );
     setEditingEmployeeId(null);
     setEmployeeForm(initialEmployeeForm);
+    await loadEmployees();
+  }
+
+  function canDeleteEmployee(employee: Employee) {
+    return (
+      canManageEmployees &&
+      employee.role !== "owner" &&
+      employee.id !== currentPanelEmployeeId &&
+      employee.user_id !== currentPanelUserId
+    );
+  }
+
+  function requestDeleteEmployee(employee: Employee) {
+    setEmployeeToDelete(employee);
+    setEmployeeMessage("");
+  }
+
+  async function deleteEmployeeLogically() {
+    if (!employeeToDelete) {
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    setIsDeletingEmployee(true);
+
+    const response = await fetch(`/api/employees/${employeeToDelete.id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+    setIsDeletingEmployee(false);
+
+    if (!response.ok) {
+      console.error("Error deleting employee:", result?.error ?? response.statusText);
+      setEmployeeMessageType("error");
+      setEmployeeMessage(result?.error ?? "No se pudo eliminar el empleado.");
+      return;
+    }
+
+    if (editingEmployeeId === employeeToDelete.id) {
+      setEditingEmployeeId(null);
+      setEmployeeForm(initialEmployeeForm);
+    }
+
+    setEmployeeToDelete(null);
+    setEmployeeMessageType("success");
+    setEmployeeMessage("Empleado eliminado correctamente.");
     await loadEmployees();
   }
 
@@ -4227,14 +4310,19 @@ export default function BarberPanel() {
               </div>
 
               {canManageEmployees && (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div
+                  className="scroll-mt-6 rounded-2xl border border-white/10 bg-black/20 p-4"
+                  ref={employeeFormRef}
+                >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-base font-bold text-white">
-                        {editingEmployeeId ? "Editar empleado" : "Crear empleado"}
+                        {editingEmployeeId ? "Editar empleado" : "Nuevo empleado"}
                       </h3>
                       <p className="mt-1 text-xs font-semibold text-white/50">
-                        No se crean cuentas Auth ni invitaciones en esta fase.
+                        {editingEmployee
+                          ? `Editando: ${editingEmployee.display_name}`
+                          : "No se crean cuentas Auth ni invitaciones en esta fase."}
                       </p>
                     </div>
                     {editingEmployeeId && (
@@ -4516,7 +4604,7 @@ export default function BarberPanel() {
                       </div>
 
                       {canManageEmployees && (
-                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <button
                             className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
                             onClick={() => startEditingEmployee(employee)}
@@ -4535,6 +4623,15 @@ export default function BarberPanel() {
                           >
                             {employee.is_active ? "Desactivar" : "Reactivar"}
                           </button>
+                          {canDeleteEmployee(employee) && (
+                            <button
+                              className="rounded-full border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-500/20 active:scale-[0.98]"
+                              onClick={() => requestDeleteEmployee(employee)}
+                              type="button"
+                            >
+                              Eliminar empleado
+                            </button>
+                          )}
                         </div>
                       )}
                     </article>
@@ -6546,6 +6643,42 @@ export default function BarberPanel() {
         )}
 
       </section>
+      {employeeToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-5 py-6 backdrop-blur-sm">
+          <section className="w-full max-w-md rounded-3xl border border-red-400/35 bg-barber-gray p-5 shadow-2xl shadow-black/60">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-100">
+              Eliminar empleado
+            </p>
+            <h2 className="mt-3 text-2xl font-bold text-white">
+              {employeeToDelete.display_name}
+            </h2>
+            <p className="mt-4 whitespace-pre-line text-sm leading-6 text-white/70">
+              ¿Seguro que quieres eliminar a este empleado?
+              {"\n"}
+              Dejará de aparecer como activo y no podrá recibir reservas ni
+              acceder al panel. Sus datos y citas históricas se conservarán.
+            </p>
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                disabled={isDeletingEmployee}
+                onClick={() => setEmployeeToDelete(null)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-2xl border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isDeletingEmployee}
+                onClick={deleteEmployeeLogically}
+                type="button"
+              >
+                {isDeletingEmployee ? "Eliminando..." : "Eliminar empleado"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

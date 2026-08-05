@@ -191,3 +191,98 @@ export async function PATCH(request: Request, contextParams: RouteContext) {
 
   return NextResponse.json({ employee: employeeWithServices });
 }
+
+export async function DELETE(request: Request, contextParams: RouteContext) {
+  const context = await getEmployeeRequestContext(request);
+
+  if ("error" in context) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  if (!context.canManageEmployees) {
+    return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  }
+
+  const { id } = await contextParams.params;
+
+  if (!id) {
+    return NextResponse.json({ error: "Empleado no válido." }, { status: 400 });
+  }
+
+  const { data: currentEmployee, error: currentError } =
+    await context.supabaseAdmin
+      .from("employees")
+      .select(
+        "id, business_id, user_id, display_name, email, phone, avatar_url, role, is_active, login_enabled, receives_bookings, calendar_color, created_at, updated_at"
+      )
+      .eq("id", id)
+      .eq("business_id", context.businessId)
+      .maybeSingle();
+
+  if (currentError) {
+    console.error("Error loading employee for logical delete:", currentError);
+    return NextResponse.json(
+      { error: "No se pudo cargar el empleado." },
+      { status: 500 }
+    );
+  }
+
+  if (!currentEmployee) {
+    return NextResponse.json(
+      { error: "Empleado no encontrado." },
+      { status: 404 }
+    );
+  }
+
+  const employee = currentEmployee as EmployeeRow;
+  const isCurrentUserEmployee =
+    context.employeeId === employee.id || employee.user_id === context.user.id;
+
+  if (employee.role === "owner") {
+    return NextResponse.json(
+      { error: "No puedes eliminar al owner principal." },
+      { status: 400 }
+    );
+  }
+
+  if (isCurrentUserEmployee) {
+    return NextResponse.json(
+      { error: "No puedes eliminarte a ti mismo." },
+      { status: 400 }
+    );
+  }
+
+  const { data: updatedEmployee, error } = await context.supabaseAdmin
+    .from("employees")
+    .update({
+      is_active: false,
+      receives_bookings: false,
+      login_enabled: false,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", employee.id)
+    .eq("business_id", context.businessId)
+    .select(
+      "id, business_id, user_id, display_name, email, phone, avatar_url, role, is_active, login_enabled, receives_bookings, calendar_color, created_at, updated_at"
+    )
+    .single();
+
+  if (error) {
+    console.error("Error logically deleting employee:", error);
+    return NextResponse.json(
+      { error: "No se pudo eliminar el empleado." },
+      { status: 500 }
+    );
+  }
+
+  const [employeeWithServices] = await attachEmployeeServices(
+    context.supabaseAdmin,
+    context.businessId,
+    [updatedEmployee as EmployeeRow]
+  );
+
+  return NextResponse.json({
+    employee: employeeWithServices,
+    logical_deleted: true
+  });
+}
