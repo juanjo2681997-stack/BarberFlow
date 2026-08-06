@@ -2094,7 +2094,7 @@ export default function BarberPanel() {
     setEmployeeMessage("");
   }
 
-  async function deleteEmployeeLogically() {
+  async function deleteEmployeePermanently() {
     if (!employeeToDelete) {
       return;
     }
@@ -2133,6 +2133,9 @@ export default function BarberPanel() {
     }
 
     setEmployeeToDelete(null);
+    setEmployees((currentEmployees) =>
+      currentEmployees.filter((employee) => employee.id !== employeeToDelete.id)
+    );
     setEmployeeMessageType("success");
     setEmployeeMessage("Empleado eliminado correctamente.");
     await loadEmployees();
@@ -6653,10 +6656,11 @@ export default function BarberPanel() {
               {employeeToDelete.display_name}
             </h2>
             <p className="mt-4 whitespace-pre-line text-sm leading-6 text-white/70">
-              ¿Seguro que quieres eliminar a este empleado?
+              ¿Seguro que quieres eliminar definitivamente a este empleado?
               {"\n"}
-              Dejará de aparecer como activo y no podrá recibir reservas ni
-              acceder al panel. Sus datos y citas históricas se conservarán.
+              Se eliminarán sus horarios, servicios, bloqueos y acceso al
+              panel. Las citas históricas se conservarán sin vínculo al
+              empleado.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button
@@ -6670,10 +6674,10 @@ export default function BarberPanel() {
               <button
                 className="rounded-2xl border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isDeletingEmployee}
-                onClick={deleteEmployeeLogically}
+                onClick={deleteEmployeePermanently}
                 type="button"
               >
-                {isDeletingEmployee ? "Eliminando..." : "Eliminar empleado"}
+                {isDeletingEmployee ? "Eliminando..." : "Eliminar definitivamente"}
               </button>
             </div>
           </section>

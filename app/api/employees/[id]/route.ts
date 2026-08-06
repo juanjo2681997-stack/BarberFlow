@@ -252,37 +252,24 @@ export async function DELETE(request: Request, contextParams: RouteContext) {
     );
   }
 
-  const { data: updatedEmployee, error } = await context.supabaseAdmin
-    .from("employees")
-    .update({
-      is_active: false,
-      receives_bookings: false,
-      login_enabled: false,
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", employee.id)
-    .eq("business_id", context.businessId)
-    .select(
-      "id, business_id, user_id, display_name, email, phone, avatar_url, role, is_active, login_enabled, receives_bookings, calendar_color, created_at, updated_at"
-    )
-    .single();
+  const { data, error } = await context.supabaseAdmin.rpc(
+    "delete_employee_completely",
+    {
+      p_business_id: context.businessId,
+      p_employee_id: employee.id
+    }
+  );
 
   if (error) {
-    console.error("Error logically deleting employee:", error);
+    console.error("Error permanently deleting employee:", error);
     return NextResponse.json(
       { error: "No se pudo eliminar el empleado." },
       { status: 500 }
     );
   }
 
-  const [employeeWithServices] = await attachEmployeeServices(
-    context.supabaseAdmin,
-    context.businessId,
-    [updatedEmployee as EmployeeRow]
-  );
-
   return NextResponse.json({
-    employee: employeeWithServices,
-    logical_deleted: true
+    result: data,
+    permanently_deleted: true
   });
 }
