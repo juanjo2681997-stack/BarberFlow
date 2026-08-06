@@ -166,6 +166,12 @@ type EmployeeForm = {
   service_ids: string[];
 };
 
+type EmployeeEditTab = "info" | "services" | "schedule" | "vacations";
+
+type EmployeeWorkingHour = WorkingHour;
+
+type EmployeeBlockedTime = BlockedTime;
+
 type BusinessSettings = {
   id: string;
   business_name: string;
@@ -835,9 +841,33 @@ export default function BarberPanel() {
   const [employeeForm, setEmployeeForm] =
     useState<EmployeeForm>(initialEmployeeForm);
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [employeeEditTab, setEmployeeEditTab] =
+    useState<EmployeeEditTab>("info");
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [isSavingEmployee, setIsSavingEmployee] = useState(false);
   const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
+  const [employeeWorkingHours, setEmployeeWorkingHours] = useState<
+    EmployeeWorkingHour[]
+  >([]);
+  const [isLoadingEmployeeWorkingHours, setIsLoadingEmployeeWorkingHours] =
+    useState(false);
+  const [employeeScheduleMessage, setEmployeeScheduleMessage] = useState("");
+  const [employeeBlockedTimes, setEmployeeBlockedTimes] = useState<
+    EmployeeBlockedTime[]
+  >([]);
+  const [isLoadingEmployeeBlockedTimes, setIsLoadingEmployeeBlockedTimes] =
+    useState(false);
+  const [employeeVacationMessage, setEmployeeVacationMessage] = useState("");
+  const [employeeBlockedTimeForm, setEmployeeBlockedTimeForm] =
+    useState<NewBlockedTimeForm>({
+      block_date: "",
+      is_full_day: true,
+      start_time: "",
+      end_time: "",
+      reason: ""
+    });
+  const [editingEmployeeBlockedTimeId, setEditingEmployeeBlockedTimeId] =
+    useState<string | null>(null);
   const [canManageEmployees, setCanManageEmployees] = useState(false);
   const [currentPanelEmployeeId, setCurrentPanelEmployeeId] = useState<
     string | null
@@ -1179,9 +1209,24 @@ export default function BarberPanel() {
     setEmployeeMessageType("success");
     setEmployeeForm(initialEmployeeForm);
     setEditingEmployeeId(null);
+    setEmployeeEditTab("info");
     setEmployeeToDelete(null);
     setIsSavingEmployee(false);
     setIsDeletingEmployee(false);
+    setEmployeeWorkingHours([]);
+    setIsLoadingEmployeeWorkingHours(false);
+    setEmployeeScheduleMessage("");
+    setEmployeeBlockedTimes([]);
+    setIsLoadingEmployeeBlockedTimes(false);
+    setEmployeeVacationMessage("");
+    setEmployeeBlockedTimeForm({
+      block_date: "",
+      is_full_day: true,
+      start_time: "",
+      end_time: "",
+      reason: ""
+    });
+    setEditingEmployeeBlockedTimeId(null);
     setCanManageEmployees(false);
     setCurrentPanelEmployeeId(null);
     setCurrentPanelRole(null);
@@ -1943,6 +1988,12 @@ export default function BarberPanel() {
     setCurrentPanelRole(result?.current_role ?? null);
   }
 
+  async function getEmployeeAccessToken() {
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    return sessionData.session?.access_token ?? "";
+  }
+
   function updateEmployeeForm<K extends keyof EmployeeForm>(
     field: K,
     value: EmployeeForm[K]
@@ -1970,8 +2021,14 @@ export default function BarberPanel() {
 
   function startCreatingEmployee() {
     setEditingEmployeeId(null);
+    setEmployeeEditTab("info");
     setEmployeeForm(initialEmployeeForm);
     setEmployeeMessage("");
+    setEmployeeWorkingHours([]);
+    setEmployeeBlockedTimes([]);
+    setEmployeeScheduleMessage("");
+    setEmployeeVacationMessage("");
+    setEditingEmployeeBlockedTimeId(null);
   }
 
   function scrollToEmployeeForm() {
@@ -2003,12 +2060,293 @@ export default function BarberPanel() {
     });
     setEmployeeMessage("");
     scrollToEmployeeForm();
+    setEmployeeEditTab("info");
+    setEmployeeScheduleMessage("");
+    setEmployeeVacationMessage("");
+    setEditingEmployeeBlockedTimeId(null);
+    setEmployeeBlockedTimeForm({
+      block_date: "",
+      is_full_day: true,
+      start_time: "",
+      end_time: "",
+      reason: ""
+    });
+    loadEmployeeWorkingHours(employee.id);
+    loadEmployeeBlockedTimes(employee.id);
   }
 
   function cancelEmployeeEdit() {
     setEditingEmployeeId(null);
+    setEmployeeEditTab("info");
     setEmployeeForm(initialEmployeeForm);
     setEmployeeMessage("");
+    setEmployeeWorkingHours([]);
+    setEmployeeBlockedTimes([]);
+    setEmployeeScheduleMessage("");
+    setEmployeeVacationMessage("");
+    setEditingEmployeeBlockedTimeId(null);
+  }
+
+  async function loadEmployeeWorkingHours(employeeId: string) {
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeScheduleMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    setIsLoadingEmployeeWorkingHours(true);
+    setEmployeeScheduleMessage("");
+
+    const response = await fetch(`/api/employees/${employeeId}/working-hours`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+    setIsLoadingEmployeeWorkingHours(false);
+
+    if (!response.ok) {
+      console.error(
+        "Error loading employee working hours:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeScheduleMessage(
+        result?.error ?? "No se pudieron cargar los horarios del empleado."
+      );
+      return;
+    }
+
+    setEmployeeWorkingHours((result?.working_hours ?? []) as EmployeeWorkingHour[]);
+  }
+
+  function updateEmployeeWorkingHour(
+    dayOfWeek: number,
+    field: keyof EmployeeWorkingHour,
+    value: string | number | boolean | null
+  ) {
+    setEmployeeWorkingHours((currentHours) =>
+      currentHours.map((workingHour) =>
+        workingHour.day_of_week === dayOfWeek
+          ? {
+              ...workingHour,
+              [field]: value
+            }
+          : workingHour
+      )
+    );
+    setEmployeeScheduleMessage("");
+  }
+
+  async function saveEmployeeWorkingHours() {
+    if (!editingEmployeeId) {
+      return;
+    }
+
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeScheduleMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(
+      `/api/employees/${editingEmployeeId}/working-hours`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          working_hours: employeeWorkingHours
+        })
+      }
+    );
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error(
+        "Error saving employee working hours:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeScheduleMessage(
+        result?.error ?? "No se pudieron guardar los horarios del empleado."
+      );
+      return;
+    }
+
+    setEmployeeWorkingHours((result?.working_hours ?? []) as EmployeeWorkingHour[]);
+    setEmployeeScheduleMessage("Horarios del empleado guardados correctamente.");
+  }
+
+  async function loadEmployeeBlockedTimes(employeeId: string) {
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeVacationMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    setIsLoadingEmployeeBlockedTimes(true);
+    setEmployeeVacationMessage("");
+
+    const response = await fetch(`/api/employees/${employeeId}/blocked-times`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+    setIsLoadingEmployeeBlockedTimes(false);
+
+    if (!response.ok) {
+      console.error(
+        "Error loading employee blocked times:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeVacationMessage(
+        result?.error ?? "No se pudieron cargar las vacaciones del empleado."
+      );
+      return;
+    }
+
+    setEmployeeBlockedTimes((result?.blocked_times ?? []) as EmployeeBlockedTime[]);
+  }
+
+  function updateEmployeeBlockedTimeForm(
+    field: keyof NewBlockedTimeForm,
+    value: string | boolean
+  ) {
+    setEmployeeBlockedTimeForm((currentForm) => ({
+      ...currentForm,
+      [field]: value
+    }));
+    setEmployeeVacationMessage("");
+  }
+
+  function startEditingEmployeeBlockedTime(blockedTime: EmployeeBlockedTime) {
+    setEditingEmployeeBlockedTimeId(blockedTime.id);
+    setEmployeeBlockedTimeForm({
+      block_date: blockedTime.block_date,
+      is_full_day: blockedTime.is_full_day,
+      start_time: formatAppointmentTime(blockedTime.start_time ?? ""),
+      end_time: formatAppointmentTime(blockedTime.end_time ?? ""),
+      reason: blockedTime.reason ?? ""
+    });
+    setEmployeeVacationMessage("");
+  }
+
+  function cancelEmployeeBlockedTimeEdit() {
+    setEditingEmployeeBlockedTimeId(null);
+    setEmployeeBlockedTimeForm({
+      block_date: "",
+      is_full_day: true,
+      start_time: "",
+      end_time: "",
+      reason: ""
+    });
+    setEmployeeVacationMessage("");
+  }
+
+  async function saveEmployeeBlockedTime() {
+    if (!editingEmployeeId) {
+      return;
+    }
+
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeVacationMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(
+      editingEmployeeBlockedTimeId
+        ? `/api/employees/${editingEmployeeId}/blocked-times/${editingEmployeeBlockedTimeId}`
+        : `/api/employees/${editingEmployeeId}/blocked-times`,
+      {
+        method: editingEmployeeBlockedTimeId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(employeeBlockedTimeForm)
+      }
+    );
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error(
+        "Error saving employee blocked time:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeVacationMessage(
+        result?.error ?? "No se pudo guardar el bloqueo del empleado."
+      );
+      return;
+    }
+
+    const successMessage = editingEmployeeBlockedTimeId
+      ? "Bloqueo del empleado actualizado correctamente."
+      : "Bloqueo del empleado creado correctamente.";
+
+    cancelEmployeeBlockedTimeEdit();
+    setEmployeeVacationMessage(successMessage);
+    await loadEmployeeBlockedTimes(editingEmployeeId);
+  }
+
+  async function deleteEmployeeBlockedTime(blockedTimeId: string) {
+    if (!editingEmployeeId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "¿Seguro que quieres eliminar este bloqueo del empleado?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeVacationMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(
+      `/api/employees/${editingEmployeeId}/blocked-times/${blockedTimeId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error(
+        "Error deleting employee blocked time:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeVacationMessage(
+        result?.error ?? "No se pudo eliminar el bloqueo del empleado."
+      );
+      return;
+    }
+
+    setEmployeeVacationMessage("Bloqueo del empleado eliminado correctamente.");
+    if (editingEmployeeBlockedTimeId === blockedTimeId) {
+      cancelEmployeeBlockedTimeEdit();
+    }
+    await loadEmployeeBlockedTimes(editingEmployeeId);
   }
 
   async function saveEmployee() {
@@ -4339,6 +4677,40 @@ export default function BarberPanel() {
                     )}
                   </div>
 
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      { key: "info", label: "Información" },
+                      { key: "services", label: "Servicios" },
+                      { key: "schedule", label: "Horarios" },
+                      { key: "vacations", label: "Vacaciones" }
+                    ].map((tab) => {
+                      const isDisabled =
+                        !editingEmployeeId &&
+                        (tab.key === "schedule" || tab.key === "vacations");
+                      const isSelected = employeeEditTab === tab.key;
+
+                      return (
+                        <button
+                          className={
+                            isSelected
+                              ? "rounded-2xl border border-barber-gold bg-barber-gold px-3 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20"
+                              : "rounded-2xl border border-white/10 bg-black/30 px-3 py-3 text-xs font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold disabled:cursor-not-allowed disabled:opacity-40"
+                          }
+                          disabled={isDisabled}
+                          key={tab.key}
+                          onClick={() =>
+                            setEmployeeEditTab(tab.key as EmployeeEditTab)
+                          }
+                          type="button"
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {employeeEditTab === "info" && (
+                    <>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <label className="block">
                       <span className="mb-2 block text-xs font-semibold text-white/60">
@@ -4491,7 +4863,10 @@ export default function BarberPanel() {
                       Acceso al panel
                     </label>
                   </div>
+                    </>
+                  )}
 
+                  {employeeEditTab === "services" && (
                   <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4">
                     <p className="text-sm font-bold text-white">
                       Servicios que realiza
@@ -4519,7 +4894,10 @@ export default function BarberPanel() {
                       </div>
                     )}
                   </div>
+                  )}
 
+                  {(employeeEditTab === "info" ||
+                    employeeEditTab === "services") && (
                   <button
                     className="mt-4 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={isSavingEmployee}
@@ -4528,6 +4906,376 @@ export default function BarberPanel() {
                   >
                     {isSavingEmployee ? "Guardando..." : "Guardar empleado"}
                   </button>
+                  )}
+
+                  {employeeEditTab === "schedule" && (
+                    <div className="mt-4 space-y-4">
+                      {employeeScheduleMessage && (
+                        <p
+                          className={
+                            employeeScheduleMessage.includes("correctamente")
+                              ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                              : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                          }
+                        >
+                          {employeeScheduleMessage}
+                        </p>
+                      )}
+
+                      {!editingEmployeeId ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                          Guarda el empleado antes de configurar sus horarios.
+                        </p>
+                      ) : isLoadingEmployeeWorkingHours ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                          Cargando horarios del empleado...
+                        </p>
+                      ) : (
+                        <>
+                          <div className="space-y-3">
+                            {employeeWorkingHours.map((workingHour) => (
+                              <article
+                                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                                key={workingHour.day_of_week}
+                              >
+                                <div className="flex items-center justify-between gap-4">
+                                  <h4 className="text-base font-bold text-white">
+                                    {workingHour.day_name}
+                                  </h4>
+                                  <label className="flex items-center gap-2 text-sm font-semibold text-white/70">
+                                    <input
+                                      checked={workingHour.is_working}
+                                      className="h-4 w-4 accent-[#d8a24a]"
+                                      onChange={(event) =>
+                                        updateEmployeeWorkingHour(
+                                          workingHour.day_of_week,
+                                          "is_working",
+                                          event.target.checked
+                                        )
+                                      }
+                                      type="checkbox"
+                                    />
+                                    Trabaja
+                                  </label>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Inicio mañana
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeWorkingHour(
+                                          workingHour.day_of_week,
+                                          "morning_start",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={formatAppointmentTime(
+                                        workingHour.morning_start ?? ""
+                                      )}
+                                    />
+                                  </label>
+
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Fin mañana
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeWorkingHour(
+                                          workingHour.day_of_week,
+                                          "morning_end",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={formatAppointmentTime(
+                                        workingHour.morning_end ?? ""
+                                      )}
+                                    />
+                                  </label>
+
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Inicio tarde
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeWorkingHour(
+                                          workingHour.day_of_week,
+                                          "afternoon_start",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={formatAppointmentTime(
+                                        workingHour.afternoon_start ?? ""
+                                      )}
+                                    />
+                                  </label>
+
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Fin tarde
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeWorkingHour(
+                                          workingHour.day_of_week,
+                                          "afternoon_end",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={formatAppointmentTime(
+                                        workingHour.afternoon_end ?? ""
+                                      )}
+                                    />
+                                  </label>
+                                </div>
+
+                                <label className="mt-4 block">
+                                  <span className="mb-2 block text-xs font-semibold text-white/60">
+                                    Intervalo entre huecos
+                                  </span>
+                                  <input
+                                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                    min="5"
+                                    onChange={(event) =>
+                                      updateEmployeeWorkingHour(
+                                        workingHour.day_of_week,
+                                        "slot_minutes",
+                                        Number(event.target.value)
+                                      )
+                                    }
+                                    type="number"
+                                    value={workingHour.slot_minutes}
+                                  />
+                                </label>
+                              </article>
+                            ))}
+                          </div>
+
+                          <button
+                            className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                            onClick={saveEmployeeWorkingHours}
+                            type="button"
+                          >
+                            Guardar horarios
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {employeeEditTab === "vacations" && (
+                    <div className="mt-4 space-y-4">
+                      {employeeVacationMessage && (
+                        <p
+                          className={
+                            employeeVacationMessage.includes("correctamente")
+                              ? "rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                              : "rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                          }
+                        >
+                          {employeeVacationMessage}
+                        </p>
+                      )}
+
+                      {!editingEmployeeId ? (
+                        <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                          Guarda el empleado antes de configurar sus vacaciones.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                            <h4 className="text-base font-bold text-white">
+                              {editingEmployeeBlockedTimeId
+                                ? "Editar bloqueo"
+                                : "Crear bloqueo"}
+                            </h4>
+
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <label className="block w-full max-w-full min-w-0">
+                                <span className="mb-2 block text-xs font-semibold text-white/60">
+                                  Fecha
+                                </span>
+                                <input
+                                  className="block w-full max-w-full min-w-0 box-border rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                  onChange={(event) =>
+                                    updateEmployeeBlockedTimeForm(
+                                      "block_date",
+                                      event.target.value
+                                    )
+                                  }
+                                  type="date"
+                                  value={employeeBlockedTimeForm.block_date}
+                                />
+                              </label>
+
+                              <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm font-semibold text-white/70">
+                                <input
+                                  checked={employeeBlockedTimeForm.is_full_day}
+                                  className="h-4 w-4 accent-[#d8a24a]"
+                                  onChange={(event) =>
+                                    updateEmployeeBlockedTimeForm(
+                                      "is_full_day",
+                                      event.target.checked
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                Día completo
+                              </label>
+
+                              {!employeeBlockedTimeForm.is_full_day && (
+                                <>
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Hora inicio
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeBlockedTimeForm(
+                                          "start_time",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={employeeBlockedTimeForm.start_time}
+                                    />
+                                  </label>
+
+                                  <label className="block">
+                                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                                      Hora fin
+                                    </span>
+                                    <input
+                                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
+                                      onChange={(event) =>
+                                        updateEmployeeBlockedTimeForm(
+                                          "end_time",
+                                          event.target.value
+                                        )
+                                      }
+                                      type="time"
+                                      value={employeeBlockedTimeForm.end_time}
+                                    />
+                                  </label>
+                                </>
+                              )}
+
+                              <label className="block sm:col-span-2">
+                                <span className="mb-2 block text-xs font-semibold text-white/60">
+                                  Motivo
+                                </span>
+                                <input
+                                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                                  onChange={(event) =>
+                                    updateEmployeeBlockedTimeForm(
+                                      "reason",
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="Vacaciones, ausencia, descanso..."
+                                  type="text"
+                                  value={employeeBlockedTimeForm.reason}
+                                />
+                              </label>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {editingEmployeeBlockedTimeId && (
+                                <button
+                                  className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
+                                  onClick={cancelEmployeeBlockedTimeEdit}
+                                  type="button"
+                                >
+                                  Cancelar edición
+                                </button>
+                              )}
+                              <button
+                                className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                                onClick={saveEmployeeBlockedTime}
+                                type="button"
+                              >
+                                {editingEmployeeBlockedTimeId
+                                  ? "Guardar bloqueo"
+                                  : "Crear bloqueo"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {isLoadingEmployeeBlockedTimes ? (
+                            <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                              Cargando vacaciones...
+                            </p>
+                          ) : employeeBlockedTimes.length === 0 ? (
+                            <p className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/65">
+                              Este empleado no tiene vacaciones ni bloqueos.
+                            </p>
+                          ) : (
+                            <div className="space-y-3">
+                              {employeeBlockedTimes.map((blockedTime) => (
+                                <article
+                                  className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                                  key={blockedTime.id}
+                                >
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                      <p className="text-base font-bold text-white">
+                                        {blockedTime.block_date}
+                                      </p>
+                                      <p className="mt-1 text-sm text-white/65">
+                                        {blockedTime.is_full_day
+                                          ? "Día completo"
+                                          : `${formatAppointmentTime(blockedTime.start_time ?? "")} - ${formatAppointmentTime(blockedTime.end_time ?? "")}`}
+                                      </p>
+                                      {blockedTime.reason && (
+                                        <p className="mt-2 text-sm text-white/55">
+                                          {blockedTime.reason}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2 sm:min-w-32">
+                                      <button
+                                        className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
+                                        onClick={() =>
+                                          startEditingEmployeeBlockedTime(
+                                            blockedTime
+                                          )
+                                        }
+                                        type="button"
+                                      >
+                                        Editar
+                                      </button>
+                                      <button
+                                        className="rounded-full border border-red-400/45 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98]"
+                                        onClick={() =>
+                                          deleteEmployeeBlockedTime(blockedTime.id)
+                                        }
+                                        type="button"
+                                      >
+                                        Eliminar
+                                      </button>
+                                    </div>
+                                  </div>
+                                </article>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

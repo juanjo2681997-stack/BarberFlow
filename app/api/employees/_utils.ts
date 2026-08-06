@@ -133,6 +133,28 @@ export async function getEmployeeRequestContext(request: Request) {
   };
 }
 
+export async function loadEmployeeForBusiness(
+  supabaseAdmin: any,
+  businessId: string,
+  employeeId: string
+) {
+  const { data, error } = await supabaseAdmin
+    .from("employees")
+    .select(
+      "id, business_id, user_id, display_name, email, phone, avatar_url, role, is_active, login_enabled, receives_bookings, calendar_color, created_at, updated_at"
+    )
+    .eq("id", employeeId)
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error loading employee for business:", error);
+    return { employee: null, error };
+  }
+
+  return { employee: data as EmployeeRow | null, error: null };
+}
+
 export async function validateServiceIds(
   supabaseAdmin: any,
   businessId: string,
