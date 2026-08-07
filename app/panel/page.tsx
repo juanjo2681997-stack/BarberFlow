@@ -4672,7 +4672,7 @@ export default function BarberPanel() {
                         onClick={cancelEmployeeEdit}
                         type="button"
                       >
-                        Cancelar edición
+                        Dejar de editar
                       </button>
                     )}
                   </div>
