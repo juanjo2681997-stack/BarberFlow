@@ -65,6 +65,13 @@ export async function PATCH(request: Request, contextParams: RouteContext) {
   const displayName = cleanOptionalText(body?.display_name);
   const requestedRole = body?.role;
 
+  if (context.businessRole === "manager" && employee.role === "owner") {
+    return NextResponse.json(
+      { error: "Un manager no puede modificar a un owner." },
+      { status: 403 }
+    );
+  }
+
   if (!displayName) {
     return NextResponse.json(
       { error: "El nombre del empleado es obligatorio." },

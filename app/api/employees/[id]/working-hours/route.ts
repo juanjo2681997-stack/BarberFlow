@@ -102,11 +102,11 @@ export async function GET(request: Request, routeContext: RouteContext) {
     return NextResponse.json({ error: context.error }, { status: context.status });
   }
 
-  if (!context.canManageEmployees) {
+  const { id } = await routeContext.params;
+
+  if (!context.canManageEmployees && context.employeeId !== id) {
     return NextResponse.json({ error: "No autorizado." }, { status: 403 });
   }
-
-  const { id } = await routeContext.params;
   const { employee, error: employeeError } = await loadEmployeeForBusiness(
     context.supabaseAdmin,
     context.businessId,

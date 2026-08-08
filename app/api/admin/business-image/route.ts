@@ -54,7 +54,7 @@ async function validateBusinessUser(
 
   let businessUserResult = await supabaseAdmin
     .from("business_users")
-    .select("business_id")
+    .select("business_id, role, employee_id")
     .eq("business_id", businessId)
     .eq("user_id", user.id)
     .limit(1)
@@ -63,7 +63,7 @@ async function validateBusinessUser(
   if (!businessUserResult.data && user.email) {
     businessUserResult = await supabaseAdmin
       .from("business_users")
-      .select("business_id")
+      .select("business_id, role, employee_id")
       .eq("business_id", businessId)
       .eq("email", user.email)
       .limit(1)
@@ -81,6 +81,37 @@ async function validateBusinessUser(
 
   if (!businessUserResult.data) {
     return { isValid: false, status: 403, error: "No autorizado." };
+  }
+
+  const businessUser = businessUserResult.data as {
+    role: string | null;
+    employee_id: string | null;
+  };
+
+  if (businessUser.role !== "owner" && businessUser.role !== "manager") {
+    return { isValid: false, status: 403, error: "No autorizado." };
+  }
+
+  if (businessUser.employee_id) {
+    const { data: employee, error: employeeError } = await supabaseAdmin
+      .from("employees")
+      .select("is_active, login_enabled")
+      .eq("id", businessUser.employee_id)
+      .eq("business_id", businessId)
+      .maybeSingle();
+
+    if (employeeError) {
+      console.error("Error checking business image employee:", employeeError);
+      return {
+        isValid: false,
+        status: 500,
+        error: "No se pudo comprobar el empleado."
+      };
+    }
+
+    if (!employee?.is_active || !employee?.login_enabled) {
+      return { isValid: false, status: 403, error: "No autorizado." };
+    }
   }
 
   return { isValid: true, status: 200, error: "" };

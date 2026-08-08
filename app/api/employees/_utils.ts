@@ -123,13 +123,42 @@ export async function getEmployeeRequestContext(request: Request) {
     return { error: "No tienes ninguna barbería asignada.", status: 403 as const };
   }
 
+  let effectiveRole = businessUser.role;
+  let effectiveEmployeeId = businessUser.employee_id;
+
+  if (businessUser.employee_id) {
+    const { data: employee, error: employeeError } = await supabaseAdmin
+      .from("employees")
+      .select("id, role, is_active, login_enabled")
+      .eq("id", businessUser.employee_id)
+      .eq("business_id", businessUser.business_id)
+      .maybeSingle();
+
+    if (employeeError) {
+      console.error("Error checking employee panel access:", employeeError);
+      return {
+        error: "No se pudo comprobar el empleado.",
+        status: 500 as const
+      };
+    }
+
+    if (!employee || !employee.is_active || !employee.login_enabled) {
+      return { error: "Acceso al panel desactivado.", status: 403 as const };
+    }
+
+    effectiveRole = employee.role;
+    effectiveEmployeeId = employee.id;
+  } else if (!isEmployeeManagerRole(businessUser.role)) {
+    return { error: "Acceso al panel desactivado.", status: 403 as const };
+  }
+
   return {
     supabaseAdmin,
     user,
     businessId: businessUser.business_id,
-    businessRole: businessUser.role,
-    employeeId: businessUser.employee_id,
-    canManageEmployees: isEmployeeManagerRole(businessUser.role)
+    businessRole: effectiveRole,
+    employeeId: effectiveEmployeeId,
+    canManageEmployees: isEmployeeManagerRole(effectiveRole)
   };
 }
 

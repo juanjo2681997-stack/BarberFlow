@@ -846,6 +846,7 @@ export default function BarberPanel() {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [isSavingEmployee, setIsSavingEmployee] = useState(false);
   const [isDeletingEmployee, setIsDeletingEmployee] = useState(false);
+  const [invitingEmployeeId, setInvitingEmployeeId] = useState<string | null>(null);
   const [employeeWorkingHours, setEmployeeWorkingHours] = useState<
     EmployeeWorkingHour[]
   >([]);
@@ -1089,6 +1090,11 @@ export default function BarberPanel() {
   const editingEmployee = editingEmployeeId
     ? employees.find((employee) => employee.id === editingEmployeeId) ?? null
     : null;
+  const isOwnerPanelRole = currentPanelRole === "owner";
+  const isManagerPanelRole = currentPanelRole === "manager";
+  const canUseOperationalPanel = isOwnerPanelRole || isManagerPanelRole;
+  const isLimitedEmployeePanel =
+    currentPanelRole === "barber" || currentPanelRole === "receptionist";
 
   useEffect(() => {
     checkSession();
@@ -1138,6 +1144,15 @@ export default function BarberPanel() {
     appointments,
     blockedTimes
   ]);
+
+  useEffect(() => {
+    if (!isLimitedEmployeePanel || !currentPanelEmployeeId) {
+      return;
+    }
+
+    loadEmployeeWorkingHours(currentPanelEmployeeId);
+    loadEmployeeBlockedTimes(currentPanelEmployeeId);
+  }, [isLimitedEmployeePanel, currentPanelEmployeeId]);
 
   async function checkSession() {
     const { data } = await supabase.auth.getSession();
@@ -1213,6 +1228,7 @@ export default function BarberPanel() {
     setEmployeeToDelete(null);
     setIsSavingEmployee(false);
     setIsDeletingEmployee(false);
+    setInvitingEmployeeId(null);
     setEmployeeWorkingHours([]);
     setIsLoadingEmployeeWorkingHours(false);
     setEmployeeScheduleMessage("");
@@ -1307,6 +1323,8 @@ export default function BarberPanel() {
 
     setCurrentBusinessId(assignedBusiness.businessId);
     setCurrentPanelUserId(user.id);
+    setCurrentPanelRole(assignedBusiness.panelRole);
+    setCurrentPanelEmployeeId(assignedBusiness.panelEmployeeId);
     setCurrentBusinessName(assignedBusiness.businessName);
     setCurrentBusinessSlug(assignedBusiness.businessSlug);
     setCurrentBusinessProfileImageUrl(assignedBusiness.profileImageUrl);
@@ -1333,7 +1351,7 @@ export default function BarberPanel() {
   }
 
   async function loadAssignedBusiness(userId: string, userEmail: string) {
-    const selectQuery = "business_id, role";
+    const selectQuery = "business_id, role, employee_id";
     let result = await supabase
       .from("business_users")
       .select(selectQuery)
@@ -1358,6 +1376,32 @@ export default function BarberPanel() {
     const assignment = result.data as BusinessUserAssignment | null;
 
     if (!assignment?.business_id) {
+      return null;
+    }
+
+    let panelRole = assignment.role;
+    let panelEmployeeId = assignment.employee_id;
+
+    if (assignment.employee_id) {
+      const { data: employeeData, error: employeeError } = await supabase
+        .from("employees")
+        .select("id, role, is_active, login_enabled")
+        .eq("id", assignment.employee_id)
+        .eq("business_id", assignment.business_id)
+        .maybeSingle();
+
+      if (employeeError || !employeeData) {
+        console.error("Error loading panel employee access:", employeeError);
+        return null;
+      }
+
+      if (!employeeData.is_active || !employeeData.login_enabled) {
+        return null;
+      }
+
+      panelRole = employeeData.role;
+      panelEmployeeId = employeeData.id;
+    } else if (assignment.role !== "owner" && assignment.role !== "manager") {
       return null;
     }
 
@@ -1387,7 +1431,9 @@ export default function BarberPanel() {
       subscriptionStatus: business.subscription_status ?? null,
       subscriptionEndsAt: business.subscription_ends_at ?? null,
       paymentFailedAt: business.payment_failed_at ?? null,
-      trialEndsAt: business.trial_ends_at ?? null
+      trialEndsAt: business.trial_ends_at ?? null,
+      panelRole,
+      panelEmployeeId
     };
   }
 
@@ -2427,6 +2473,13 @@ export default function BarberPanel() {
     );
   }
 
+  function canModifyEmployee(employee: Employee) {
+    return (
+      canManageEmployees &&
+      !(currentPanelRole === "manager" && employee.role === "owner")
+    );
+  }
+
   function requestDeleteEmployee(employee: Employee) {
     setEmployeeToDelete(employee);
     setEmployeeMessage("");
@@ -2476,6 +2529,89 @@ export default function BarberPanel() {
     );
     setEmployeeMessageType("success");
     setEmployeeMessage("Empleado eliminado correctamente.");
+    await loadEmployees();
+  }
+
+  async function inviteEmployee(employee: Employee) {
+    setInvitingEmployeeId(employee.id);
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setInvitingEmployeeId(null);
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(`/api/employees/${employee.id}/invite`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+    setInvitingEmployeeId(null);
+
+    if (!response.ok) {
+      console.error("Error inviting employee:", result?.error ?? response.statusText);
+      setEmployeeMessageType("error");
+      setEmployeeMessage(result?.error ?? "No se pudo enviar la invitación.");
+      return;
+    }
+
+    setEmployeeMessageType("success");
+    setEmployeeMessage(
+      result?.invite_sent
+        ? "Invitación enviada correctamente."
+        : "Este email ya tenía cuenta. Empleado vinculado correctamente."
+    );
+    await loadEmployees();
+  }
+
+  async function disableEmployeeAccess(employee: Employee) {
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setEmployeeMessageType("error");
+      setEmployeeMessage("No se pudo comprobar tu sesión.");
+      return;
+    }
+
+    const response = await fetch(`/api/employees/${employee.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        display_name: employee.display_name,
+        email: employee.email ?? "",
+        phone: employee.phone ?? "",
+        avatar_url: employee.avatar_url ?? "",
+        role: employee.role,
+        is_active: employee.is_active,
+        receives_bookings: employee.receives_bookings,
+        login_enabled: false,
+        calendar_color: employee.calendar_color ?? "",
+        service_ids: employee.service_ids ?? []
+      })
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error(
+        "Error disabling employee access:",
+        result?.error ?? response.statusText
+      );
+      setEmployeeMessageType("error");
+      setEmployeeMessage(result?.error ?? "No se pudo desactivar el acceso.");
+      return;
+    }
+
+    setEmployeeMessageType("success");
+    setEmployeeMessage("Acceso al panel desactivado correctamente.");
     await loadEmployees();
   }
 
@@ -2545,6 +2681,22 @@ export default function BarberPanel() {
       .filter((serviceName): serviceName is string => Boolean(serviceName));
 
     return serviceNames.length > 0 ? serviceNames.join(", ") : "Sin servicios asignados";
+  }
+
+  function getEmployeePanelAccessLabel(employee: Employee) {
+    if (!employee.login_enabled && employee.user_id) {
+      return "Acceso desactivado";
+    }
+
+    if (!employee.login_enabled) {
+      return "Sin acceso al panel";
+    }
+
+    if (employee.user_id) {
+      return "Cuenta vinculada";
+    }
+
+    return "Pendiente de enviar invitación";
   }
 
   async function loadAppointments(businessId = currentBusinessId) {
@@ -4486,6 +4638,7 @@ export default function BarberPanel() {
           </div>
         </header>
 
+        {isOwnerPanelRole && (
         <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -4587,6 +4740,7 @@ export default function BarberPanel() {
             </p>
           )}
         </section>
+        )}
 
         {isPaymentGraceExpired ? (
           <section className="mt-8 rounded-2xl border border-red-400/30 bg-red-400/10 p-5 text-sm font-semibold leading-6 text-red-100">
@@ -5346,15 +5500,11 @@ export default function BarberPanel() {
                             : "Sin acceso al panel"}
                         </span>
                         <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/65">
-                          {employee.user_id
-                            ? "Cuenta vinculada"
-                            : employee.login_enabled
-                              ? "Invitación pendiente"
-                              : "Sin cuenta vinculada"}
+                          {getEmployeePanelAccessLabel(employee)}
                         </span>
                       </div>
 
-                      {canManageEmployees && (
+                      {canModifyEmployee(employee) && (
                         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <button
                             className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
@@ -5383,16 +5533,113 @@ export default function BarberPanel() {
                               Eliminar empleado
                             </button>
                           )}
+                          {employee.login_enabled &&
+                            !employee.user_id && (
+                              <button
+                                className="rounded-full border border-emerald-400/45 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                                disabled={invitingEmployeeId === employee.id}
+                                onClick={() => inviteEmployee(employee)}
+                                type="button"
+                              >
+                                {invitingEmployeeId === employee.id
+                                  ? "Enviando..."
+                                  : "Enviar invitación"}
+                              </button>
+                            )}
+                          {employee.login_enabled &&
+                            employee.user_id &&
+                            canDeleteEmployee(employee) && (
+                              <button
+                                className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/70 transition hover:border-red-400/45 hover:text-red-100 active:scale-[0.98]"
+                                onClick={() => disableEmployeeAccess(employee)}
+                                type="button"
+                              >
+                                Desactivar acceso
+                              </button>
+                            )}
                         </div>
                       )}
                     </article>
                   ))}
                 </div>
               )}
+
+              {isLimitedEmployeePanel && currentPanelEmployeeId && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <h3 className="text-base font-bold text-white">
+                      Mis horarios
+                    </h3>
+                    {isLoadingEmployeeWorkingHours ? (
+                      <p className="mt-3 text-sm text-white/60">
+                        Cargando horarios...
+                      </p>
+                    ) : employeeWorkingHours.length === 0 ? (
+                      <p className="mt-3 text-sm text-white/60">
+                        No tienes horarios configurados.
+                      </p>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {employeeWorkingHours.map((workingHour) => (
+                          <div
+                            className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm leading-6 text-white/65"
+                            key={workingHour.day_of_week}
+                          >
+                            <p className="font-bold text-white">
+                              {workingHour.day_name}
+                            </p>
+                            <p>
+                              {workingHour.is_working
+                                ? `${formatAppointmentTime(workingHour.morning_start ?? "") || "--:--"} - ${formatAppointmentTime(workingHour.morning_end ?? "") || "--:--"} · ${formatAppointmentTime(workingHour.afternoon_start ?? "") || "--:--"} - ${formatAppointmentTime(workingHour.afternoon_end ?? "") || "--:--"}`
+                                : "No trabaja"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <h3 className="text-base font-bold text-white">
+                      Mis vacaciones y bloqueos
+                    </h3>
+                    {isLoadingEmployeeBlockedTimes ? (
+                      <p className="mt-3 text-sm text-white/60">
+                        Cargando bloqueos...
+                      </p>
+                    ) : employeeBlockedTimes.length === 0 ? (
+                      <p className="mt-3 text-sm text-white/60">
+                        No tienes vacaciones ni bloqueos configurados.
+                      </p>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {employeeBlockedTimes.map((blockedTime) => (
+                          <div
+                            className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm leading-6 text-white/65"
+                            key={blockedTime.id}
+                          >
+                            <p className="font-bold text-white">
+                              {blockedTime.block_date}
+                            </p>
+                            <p>
+                              {blockedTime.is_full_day
+                                ? "Día completo"
+                                : `${formatAppointmentTime(blockedTime.start_time ?? "")} - ${formatAppointmentTime(blockedTime.end_time ?? "")}`}
+                            </p>
+                            {blockedTime.reason && <p>{blockedTime.reason}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>
 
+        {canUseOperationalPanel ? (
+          <>
         <section className="order-4 mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("manual", "Crear cita manual")}
           {openSections.manual && (
@@ -7390,6 +7637,13 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
+          </>
+        ) : isLimitedEmployeePanel ? (
+          <p className="mt-8 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm font-semibold leading-6 text-white/65">
+            Tu acceso está limitado a tu perfil de empleado. La agenda propia se
+            añadirá en la siguiente fase.
+          </p>
+        ) : null}
           </>
         )}
 

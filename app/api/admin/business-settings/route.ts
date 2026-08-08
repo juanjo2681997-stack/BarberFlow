@@ -118,7 +118,7 @@ export async function PATCH(request: Request) {
 
   let businessUserResult = await supabaseAdmin
     .from("business_users")
-    .select("business_id")
+    .select("business_id, role, employee_id")
     .eq("business_id", businessId)
     .eq("user_id", user.id)
     .limit(1)
@@ -127,7 +127,7 @@ export async function PATCH(request: Request) {
   if (!businessUserResult.data && user.email) {
     businessUserResult = await supabaseAdmin
       .from("business_users")
-      .select("business_id")
+      .select("business_id, role, employee_id")
       .eq("business_id", businessId)
       .eq("email", user.email)
       .limit(1)
@@ -144,6 +144,38 @@ export async function PATCH(request: Request) {
 
   if (!businessUserResult.data && !adminUser) {
     return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+  }
+
+  if (businessUserResult.data && !adminUser) {
+    const businessUser = businessUserResult.data as {
+      role: string | null;
+      employee_id: string | null;
+    };
+
+    if (businessUser.role !== "owner" && businessUser.role !== "manager") {
+      return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+    }
+
+    if (businessUser.employee_id) {
+      const { data: employee, error: employeeError } = await supabaseAdmin
+        .from("employees")
+        .select("is_active, login_enabled")
+        .eq("id", businessUser.employee_id)
+        .eq("business_id", businessId)
+        .maybeSingle();
+
+      if (employeeError) {
+        console.error("Error checking business settings employee:", employeeError);
+        return NextResponse.json(
+          { error: "No se pudo comprobar el empleado." },
+          { status: 500 }
+        );
+      }
+
+      if (!employee?.is_active || !employee?.login_enabled) {
+        return NextResponse.json({ error: "No autorizado." }, { status: 403 });
+      }
+    }
   }
 
   const { data, error } = await supabaseAdmin
