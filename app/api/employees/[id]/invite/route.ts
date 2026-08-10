@@ -202,6 +202,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
 
   let authUser = existingUserResult.user;
   let inviteSent = false;
+  let accessEmailSent = false;
 
   if (!authUser) {
     const redirectTo = `${getAppOrigin(request)}/auth/callback?next=/panel`;
@@ -225,6 +226,7 @@ export async function POST(request: Request, routeContext: RouteContext) {
 
     authUser = data?.user as AuthUser | null;
     inviteSent = true;
+    accessEmailSent = true;
   }
 
   if (!authUser?.id) {
@@ -274,9 +276,31 @@ export async function POST(request: Request, routeContext: RouteContext) {
     );
   }
 
+  if (!accessEmailSent) {
+    const redirectTo = `${getAppOrigin(request)}/auth/callback?next=/panel`;
+    const { error: accessEmailError } =
+      await context.supabaseAdmin.auth.resetPasswordForEmail(email, {
+        redirectTo
+      });
+
+    if (accessEmailError) {
+      console.error("Error sending employee access email:", accessEmailError);
+      return NextResponse.json(
+        {
+          error:
+            "El empleado se ha vinculado, pero no se pudo enviar el correo de acceso."
+        },
+        { status: 500 }
+      );
+    }
+
+    accessEmailSent = true;
+  }
+
   return NextResponse.json({
     employee: updatedEmployee,
     invite_sent: inviteSent,
+    access_email_sent: accessEmailSent,
     reused_existing_user: !inviteSent
   });
 }

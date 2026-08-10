@@ -232,6 +232,7 @@ const defaultScheduleChangeCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora} para {servicio} ha sido cancelada por un cambio en el horario de la barbería. Disculpa las molestias.";
 
 const paymentGraceHours = 48;
+const isPremiumEmployeesEnabled = false;
 
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
@@ -933,7 +934,7 @@ export default function BarberPanel() {
   const employeeFormRef = useRef<HTMLDivElement | null>(null);
   const [openSections, setOpenSections] = useState<Record<PanelSectionKey, boolean>>({
     dayAgenda: true,
-    employees: true,
+    employees: false,
     reviews: false,
     history: false,
     manual: true,
@@ -1094,7 +1095,8 @@ export default function BarberPanel() {
   const isManagerPanelRole = currentPanelRole === "manager";
   const canUseOperationalPanel = isOwnerPanelRole || isManagerPanelRole;
   const isLimitedEmployeePanel =
-    currentPanelRole === "barber" || currentPanelRole === "receptionist";
+    isPremiumEmployeesEnabled &&
+    (currentPanelRole === "barber" || currentPanelRole === "receptionist");
 
   useEffect(() => {
     checkSession();
@@ -1175,7 +1177,12 @@ export default function BarberPanel() {
     loadBusinessSettings(true, businessId);
     loadWorkingHours(businessId);
     loadServices(businessId);
-    loadEmployees();
+    if (isPremiumEmployeesEnabled) {
+      loadEmployees();
+    } else {
+      setEmployees([]);
+      setCanManageEmployees(false);
+    }
     loadBlockedTimes(businessId);
   }
 
@@ -2561,11 +2568,7 @@ export default function BarberPanel() {
     }
 
     setEmployeeMessageType("success");
-    setEmployeeMessage(
-      result?.invite_sent
-        ? "Invitación enviada correctamente."
-        : "Este email ya tenía cuenta. Empleado vinculado correctamente."
-    );
+    setEmployeeMessage("Correo de acceso enviado correctamente.");
     await loadEmployees();
   }
 
@@ -4760,6 +4763,7 @@ export default function BarberPanel() {
           </section>
         ) : (
           <>
+        {isPremiumEmployeesEnabled && (
         <section className="mt-8 border-t border-white/10 pt-6">
           {renderAccordionHeader("employees", "Empleados")}
           {openSections.employees && (
@@ -5637,6 +5641,7 @@ export default function BarberPanel() {
             </div>
           )}
         </section>
+        )}
 
         {canUseOperationalPanel ? (
           <>
@@ -7648,7 +7653,7 @@ export default function BarberPanel() {
         )}
 
       </section>
-      {employeeToDelete && (
+      {isPremiumEmployeesEnabled && employeeToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-5 py-6 backdrop-blur-sm">
           <section className="w-full max-w-md rounded-3xl border border-red-400/35 bg-barber-gray p-5 shadow-2xl shadow-black/60">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-100">
