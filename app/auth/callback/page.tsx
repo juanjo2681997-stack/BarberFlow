@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabaseClient";
 function AuthCallbackContent() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") || "/panel";
+  const mode = searchParams.get("mode") || "invite";
+  const isEmailVerification = mode === "verify";
   const [isLoading, setIsLoading] = useState(true);
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
@@ -78,7 +80,7 @@ function AuthCallbackContent() {
           BARBERFLOW
         </p>
         <h1 className="mt-6 text-3xl font-bold text-white">
-          Acceso de empleado
+          {isEmailVerification ? "Correo verificado" : "Acceso de empleado"}
         </h1>
 
         {isLoading ? (
@@ -90,6 +92,13 @@ function AuthCallbackContent() {
             No se pudo iniciar sesión con esta invitación. Pide una nueva
             invitación a la barbería.
           </p>
+        ) : isEmailVerification ? (
+          <div className="mt-6 space-y-4">
+            <p className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold leading-6 text-barber-gold">
+              Tu correo electrónico se ha verificado correctamente. Ya puedes
+              acceder a BarberFlow con tu email y contraseña.
+            </p>
+          </div>
         ) : (
           <div className="mt-6 space-y-4">
             <p className="text-sm leading-6 text-white/65">
@@ -146,7 +155,7 @@ function AuthCallbackContent() {
           className="mt-4 block rounded-2xl border border-white/10 px-4 py-3 text-center text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
           href={nextPath}
         >
-          Ir al panel
+          {isEmailVerification ? "Continuar" : "Ir al panel"}
         </Link>
       </section>
     </main>

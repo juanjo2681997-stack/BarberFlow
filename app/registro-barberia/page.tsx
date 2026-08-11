@@ -148,6 +148,18 @@ export default function RegisterBusinessPage() {
 
         {result ? (
           <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4">
+              <h2 className="text-xl font-bold text-white">
+                Cuenta creada correctamente
+              </h2>
+              <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-barber-gold">
+                Te hemos enviado un correo de verificación.
+                {"\n\n"}
+                Revisa tu bandeja de entrada y pulsa el enlace para activar tu
+                cuenta.
+              </p>
+            </div>
+
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
                 URL pública
@@ -177,9 +189,9 @@ export default function RegisterBusinessPage() {
 
             <Link
               className="block rounded-2xl bg-barber-gold px-5 py-3 text-center text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
-              href="/panel"
+              href="/"
             >
-              Ir a mi panel
+              Volver al inicio de sesión
             </Link>
           </div>
         ) : (

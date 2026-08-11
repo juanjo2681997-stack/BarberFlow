@@ -234,6 +234,43 @@ const defaultScheduleChangeCancellationMessage =
 const paymentGraceHours = 48;
 const isPremiumEmployeesEnabled = false;
 
+function isEmailNotConfirmedError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const authError = error as { code?: string; message?: string };
+  const code = authError.code?.toLowerCase() ?? "";
+  const message = authError.message?.toLowerCase() ?? "";
+
+  return (
+    code.includes("email_not_confirmed") ||
+    message.includes("email not confirmed") ||
+    message.includes("not confirmed")
+  );
+}
+
+function getPanelAuthErrorMessage(error: unknown) {
+  if (isEmailNotConfirmedError(error)) {
+    return "Todavía no has verificado tu correo electrónico.\n\nRevisa tu bandeja de entrada o solicita un nuevo correo de confirmación.";
+  }
+
+  if (!error || typeof error !== "object") {
+    return "No se pudo iniciar sesión.";
+  }
+
+  const message = ((error as { message?: string }).message ?? "").toLowerCase();
+
+  if (
+    message.includes("invalid login credentials") ||
+    message.includes("invalid credentials")
+  ) {
+    return "Email o contraseña incorrectos.";
+  }
+
+  return "No se pudo iniciar sesión. Inténtalo de nuevo.";
+}
+
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
   business_name: "Pablo's Barbershop",
@@ -817,6 +854,9 @@ export default function BarberPanel() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [unverifiedLoginEmail, setUnverifiedLoginEmail] = useState<string | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [isLoadingReviews, setIsLoadingReviews] = useState(true);
@@ -1453,13 +1493,47 @@ export default function BarberPanel() {
 
     if (error) {
       setIsCheckingAdmin(false);
-      setLoginError("Email o contraseña incorrectos.");
+      if (isEmailNotConfirmedError(error)) {
+        setUnverifiedLoginEmail(email.trim().toLowerCase());
+      }
+      setLoginError(getPanelAuthErrorMessage(error));
       return;
     }
 
     setLoginError("");
+    setUnverifiedLoginEmail(null);
     setPassword("");
     await verifyAdminAccess();
+  }
+
+  async function resendPanelVerificationEmail() {
+    if (!unverifiedLoginEmail) {
+      return;
+    }
+
+    const emailRedirectTo =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/auth/callback?mode=verify&next=/panel`
+        : undefined;
+
+    setIsCheckingAdmin(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: unverifiedLoginEmail,
+      options: {
+        emailRedirectTo
+      }
+    });
+    setIsCheckingAdmin(false);
+
+    if (error) {
+      setLoginError(
+        "No se pudo reenviar el correo de verificación. Inténtalo de nuevo."
+      );
+      return;
+    }
+
+    setLoginError("Te hemos enviado un nuevo correo de verificación.");
   }
 
   async function handleLogout() {
@@ -4561,6 +4635,7 @@ export default function BarberPanel() {
                 onChange={(event) => {
                   setEmail(event.target.value);
                   setLoginError("");
+                  setUnverifiedLoginEmail(null);
                 }}
                 placeholder="pablo@barberflow.com"
                 type="email"
@@ -4578,6 +4653,7 @@ export default function BarberPanel() {
                   onChange={(event) => {
                     setPassword(event.target.value);
                     setLoginError("");
+                    setUnverifiedLoginEmail(null);
                   }}
                   placeholder="Contraseña"
                   type={showPassword ? "text" : "password"}
@@ -4602,9 +4678,19 @@ export default function BarberPanel() {
             </button>
           </div>
           {loginError && (
-            <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
+            <p className="mt-5 whitespace-pre-line rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
               {loginError}
             </p>
+          )}
+
+          {unverifiedLoginEmail && (
+            <button
+              className="mt-3 w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+              onClick={resendPanelVerificationEmail}
+              type="button"
+            >
+              Reenviar correo de verificación
+            </button>
           )}
 
           <Link

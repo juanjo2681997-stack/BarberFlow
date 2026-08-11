@@ -19,6 +19,11 @@ type FormMessage = {
   type: "success" | "error";
 };
 
+type VerificationNotice = {
+  email: string;
+  kind: "created" | "unverified";
+};
+
 type WorkingHour = {
   id: string;
   day_of_week: number;
@@ -692,6 +697,51 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function isEmailNotConfirmedError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const authError = error as { code?: string; message?: string };
+  const code = authError.code?.toLowerCase() ?? "";
+  const message = authError.message?.toLowerCase() ?? "";
+
+  return (
+    code.includes("email_not_confirmed") ||
+    message.includes("email not confirmed") ||
+    message.includes("not confirmed")
+  );
+}
+
+function getFriendlyAuthError(error: unknown) {
+  if (isEmailNotConfirmedError(error)) {
+    return "Todavía no has verificado tu correo electrónico.\n\nRevisa tu bandeja de entrada o solicita un nuevo correo de confirmación.";
+  }
+
+  if (!error || typeof error !== "object") {
+    return "No se pudo completar la operación.";
+  }
+
+  const message = ((error as { message?: string }).message ?? "").toLowerCase();
+
+  if (
+    message.includes("invalid login credentials") ||
+    message.includes("invalid credentials")
+  ) {
+    return "Email o contraseña incorrectos.";
+  }
+
+  if (
+    message.includes("already registered") ||
+    message.includes("already exists") ||
+    message.includes("user already")
+  ) {
+    return "Ya existe una cuenta con ese email.";
+  }
+
+  return "No se pudo completar la operación. Inténtalo de nuevo.";
+}
+
 function getInstagramUrl(value: unknown) {
   const instagramUrl = normalizeOptionalText(value);
 
@@ -763,6 +813,8 @@ export default function Home() {
     CustomerAppointment[]
   >([]);
   const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
+  const [customerVerificationNotice, setCustomerVerificationNotice] =
+    useState<VerificationNotice | null>(null);
   const [customerAppointmentsMessage, setCustomerAppointmentsMessage] =
     useState<FormMessage | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -775,6 +827,8 @@ export default function Home() {
     initialCustomerLoginForm
   );
   const [barberMessage, setBarberMessage] = useState<FormMessage | null>(null);
+  const [barberVerificationEmail, setBarberVerificationEmail] =
+    useState<string | null>(null);
   const [isCheckingCustomerSession, setIsCheckingCustomerSession] = useState(true);
   const [isCustomerAuthLoading, setIsCustomerAuthLoading] = useState(false);
   const [isBarberAuthLoading, setIsBarberAuthLoading] = useState(false);
@@ -1601,7 +1655,7 @@ export default function Home() {
       return;
     }
 
-    await loadCustomerProfile(user.id);
+    await loadCustomerProfile(user);
   }
 
   async function checkCustomerAdminAccess() {
@@ -1664,6 +1718,7 @@ export default function Home() {
       [field]: value
     }));
     setCustomerMessage(null);
+    setCustomerVerificationNotice(null);
   }
 
   function updateCustomerLoginField(field: keyof CustomerLoginForm, value: string) {
@@ -1672,6 +1727,7 @@ export default function Home() {
       [field]: value
     }));
     setCustomerMessage(null);
+    setCustomerVerificationNotice(null);
   }
 
   function updateBarberLoginField(field: keyof CustomerLoginForm, value: string) {
@@ -1680,6 +1736,7 @@ export default function Home() {
       [field]: value
     }));
     setBarberMessage(null);
+    setBarberVerificationEmail(null);
   }
 
   function updateCustomerProfile(field: keyof CustomerProfile, value: string) {
@@ -1688,6 +1745,59 @@ export default function Home() {
       [field]: value
     }));
     setCustomerMessage(null);
+  }
+
+  function getEmailRedirectTo(nextPath: string) {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    return `${window.location.origin}/auth/callback?mode=verify&next=${encodeURIComponent(
+      nextPath
+    )}`;
+  }
+
+  async function resendVerificationEmail(
+    email: string,
+    target: "customer" | "barber"
+  ) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return;
+    }
+
+    const setMessage = target === "customer" ? setCustomerMessage : setBarberMessage;
+    const nextPath = target === "barber" ? "/panel" : "/";
+
+    target === "customer"
+      ? setIsCustomerAuthLoading(true)
+      : setIsBarberAuthLoading(true);
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: cleanEmail,
+      options: {
+        emailRedirectTo: getEmailRedirectTo(nextPath)
+      }
+    });
+
+    target === "customer"
+      ? setIsCustomerAuthLoading(false)
+      : setIsBarberAuthLoading(false);
+
+    if (error) {
+      setMessage({
+        text: "No se pudo reenviar el correo de verificación. Inténtalo de nuevo.",
+        type: "error"
+      });
+      return;
+    }
+
+    setMessage({
+      text: "Te hemos enviado un nuevo correo de verificación.",
+      type: "success"
+    });
   }
 
   async function registerCustomer() {
@@ -1723,6 +1833,7 @@ export default function Home() {
       email: customerAuthForm.email.trim(),
       password: customerAuthForm.password,
       options: {
+        emailRedirectTo: getEmailRedirectTo("/"),
         data: {
           full_name: fullName,
           phone: customerAuthForm.phone.trim()
@@ -1734,35 +1845,21 @@ export default function Home() {
 
     if (error) {
       setCustomerMessage({
-        text: "No se pudo crear la cuenta.",
+        text: getFriendlyAuthError(error),
         type: "error"
       });
       return;
     }
 
-    if (data.user) {
-      const { error: profileError } = await saveCustomerProfileForUser(
-        data.user.id,
-        fullName,
-        customerAuthForm.phone
-      );
-
-      if (data.session && !profileError) {
-        setCustomerProfile({
-          user_id: data.user.id,
-          full_name: fullName,
-          phone: customerAuthForm.phone.trim(),
-          avatar_url: ""
-        });
-      }
+    if (data.session) {
+      await supabase.auth.signOut();
+      clearCustomerData();
     }
 
     setCustomerAuthForm(initialCustomerAuthForm);
-    setCustomerMessage({
-      text: data.session
-        ? "Cuenta creada correctamente."
-        : "Cuenta creada. Revisa tu correo para confirmarla antes de iniciar sesión.",
-      type: "success"
+    setCustomerVerificationNotice({
+      email: customerAuthForm.email.trim().toLowerCase(),
+      kind: "created"
     });
   }
 
@@ -1789,8 +1886,15 @@ export default function Home() {
     setIsCustomerAuthLoading(false);
 
     if (error) {
+      if (isEmailNotConfirmedError(error)) {
+        setCustomerVerificationNotice({
+          email: customerLoginForm.email.trim().toLowerCase(),
+          kind: "unverified"
+        });
+      }
+
       setCustomerMessage({
-        text: "No se pudo iniciar sesión.",
+        text: getFriendlyAuthError(error),
         type: "error"
       });
       return;
@@ -1829,8 +1933,11 @@ export default function Home() {
 
     if (error) {
       setIsBarberAuthLoading(false);
+      if (isEmailNotConfirmedError(error)) {
+        setBarberVerificationEmail(barberLoginForm.email.trim().toLowerCase());
+      }
       setBarberMessage({
-        text: "No se pudo iniciar sesión.",
+        text: getFriendlyAuthError(error),
         type: "error"
       });
       return;
@@ -1867,7 +1974,8 @@ export default function Home() {
     });
   }
 
-  async function loadCustomerProfile(userId: string) {
+  async function loadCustomerProfile(user: User) {
+    const userId = user.id;
     setIsLoadingCustomerProfile(true);
 
     const { data, error } = await supabase
@@ -1888,11 +1996,32 @@ export default function Home() {
       return;
     }
 
+    if (!data) {
+      const fullName =
+        typeof user.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name
+          : "";
+      const phone =
+        typeof user.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
+
+      if (fullName || phone) {
+        await saveCustomerProfileForUser(userId, fullName, phone);
+      }
+
+      setCustomerProfile({
+        user_id: userId,
+        full_name: fullName,
+        phone,
+        avatar_url: ""
+      });
+      return;
+    }
+
     setCustomerProfile({
       user_id: userId,
-      full_name: data?.full_name ?? "",
-      phone: data?.phone ?? "",
-      avatar_url: data?.avatar_url ?? ""
+      full_name: data.full_name ?? "",
+      phone: data.phone ?? "",
+      avatar_url: data.avatar_url ?? ""
     });
   }
 
@@ -2902,12 +3031,25 @@ export default function Home() {
             <p
               className={
                 barberMessage.type === "success"
-                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
-                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  ? "mt-5 whitespace-pre-line rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 whitespace-pre-line rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
               }
             >
               {barberMessage.text}
             </p>
+          )}
+
+          {barberVerificationEmail && (
+            <button
+              className="mt-3 w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isBarberAuthLoading}
+              onClick={() =>
+                resendVerificationEmail(barberVerificationEmail, "barber")
+              }
+              type="button"
+            >
+              Reenviar correo de verificación
+            </button>
           )}
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -2986,14 +3128,38 @@ export default function Home() {
             <p
               className={
                 customerMessage.type === "success"
-                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
-                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+                  ? "mt-5 whitespace-pre-line rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 whitespace-pre-line rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
               }
             >
               {customerMessage.text}
             </p>
           )}
 
+          {customerVerificationNotice?.kind === "created" ? (
+            <div className="mt-6 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-5">
+              <h2 className="text-xl font-bold text-white">
+                Cuenta creada correctamente
+              </h2>
+              <p className="mt-3 whitespace-pre-line text-sm font-semibold leading-6 text-barber-gold">
+                Te hemos enviado un correo de verificación.
+                {"\n\n"}
+                Revisa tu bandeja de entrada y pulsa el enlace para activar tu
+                cuenta.
+              </p>
+              <button
+                className="mt-5 w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                onClick={() => {
+                  setCustomerVerificationNotice(null);
+                  setCustomerMessage(null);
+                }}
+                type="button"
+              >
+                Volver al inicio de sesión
+              </button>
+            </div>
+          ) : (
+            <>
           <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
             <h2 className="text-lg font-bold text-white">Iniciar sesión</h2>
             <div className="mt-4 space-y-4">
@@ -3037,6 +3203,19 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {customerVerificationNotice?.kind === "unverified" && (
+            <button
+              className="mt-3 w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isCustomerAuthLoading}
+              onClick={() =>
+                resendVerificationEmail(customerVerificationNotice.email, "customer")
+              }
+              type="button"
+            >
+              Reenviar correo de verificación
+            </button>
+          )}
 
           <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
             <h2 className="text-lg font-bold text-white">Crear cuenta</h2>
@@ -3143,23 +3322,8 @@ export default function Home() {
               </button>
             </div>
           </div>
-
-          <div className="mt-5 grid grid-cols-1 gap-3">
-            <button
-              className="cursor-not-allowed rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white/35"
-              disabled
-              type="button"
-            >
-              Continuar con Google (próximamente)
-            </button>
-            <button
-              className="cursor-not-allowed rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-bold text-white/35"
-              disabled
-              type="button"
-            >
-              Continuar con Apple (próximamente)
-            </button>
-          </div>
+            </>
+          )}
         </section>
       </main>
     );

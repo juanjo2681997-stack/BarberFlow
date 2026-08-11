@@ -117,6 +117,32 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+function getAuthClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!supabaseUrl || !publishableKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, publishableKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+}
+
+function getAppOrigin(request: Request) {
+  const configuredUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  const requestOrigin = request.headers.get("origin") ?? "";
+
+  return (configuredUrl || requestOrigin).replace(/\/$/, "");
+}
+
 function slugify(value: string) {
   const slug = value
     .normalize("NFD")
@@ -172,8 +198,9 @@ function addDays(date: Date, days: number) {
 
 export async function POST(request: Request) {
   const supabase = getAdminClient();
+  const authClient = getAuthClient();
 
-  if (!supabase) {
+  if (!supabase || !authClient) {
     return NextResponse.json(
       { error: "Faltan variables de entorno de Supabase." },
       { status: 500 }
@@ -204,16 +231,29 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: userData, error: userError } =
-      await supabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
+    const emailRedirectTo = `${getAppOrigin(
+      request
+    )}/auth/callback?mode=verify&next=/panel`;
+    const { data: userData, error: userError } = await authClient.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo,
+        data: {
           full_name: ownerName,
           business_name: businessName
         }
-      });
+      }
+    });
+
+    const userIdentities = userData.user?.identities ?? [];
+
+    if (userData.user && userIdentities.length === 0) {
+      return NextResponse.json(
+        { error: "Ya existe una cuenta con ese email." },
+        { status: 400 }
+      );
+    }
 
     if (userError || !userData.user) {
       const message = userError?.message ?? "No se pudo crear el usuario.";
