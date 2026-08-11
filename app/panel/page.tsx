@@ -4811,12 +4811,6 @@ export default function BarberPanel() {
             </p>
           )}
 
-          {currentBusinessSubscriptionStatus && (
-            <p className="mt-3 text-xs font-semibold text-white/40">
-              Estado interno: {currentBusinessSubscriptionStatus}
-            </p>
-          )}
-
           {subscriptionMessage && (
             <p
               className={
