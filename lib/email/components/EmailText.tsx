@@ -9,10 +9,10 @@ export function EmailText({ children, muted = false }: EmailTextProps) {
   return (
     <p
       style={{
-        color: muted ? "#6b7280" : "#2b2b2b",
+        color: muted ? "#a49d91" : "#f3efe7",
         fontSize: "15px",
         lineHeight: "24px",
-        margin: "0 0 16px"
+        margin: muted ? "18px 0 0" : "0 0 16px"
       }}
     >
       {children}

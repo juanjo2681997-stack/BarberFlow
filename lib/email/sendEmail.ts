@@ -1,5 +1,4 @@
 import { createElement, type ComponentType } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { sendResendEmail } from "./resend";
 import {
   emailTemplates,
@@ -24,6 +23,7 @@ export async function sendEmail<TTemplate extends EmailTemplateName>({
   const TemplateComponent = templateDefinition.component as ComponentType<
     EmailTemplateProps[TTemplate]
   >;
+  const { renderToStaticMarkup } = await import("react-dom/server");
   const html = `<!doctype html>${renderToStaticMarkup(
     createElement(TemplateComponent, props)
   )}`;

@@ -1,3 +1,4 @@
+import { EmailDetails } from "../components/EmailDetails";
 import { EmailText } from "../components/EmailText";
 import { EmailLayout } from "../layout";
 
@@ -24,16 +25,15 @@ export function BookingCancelled({
       title="Cita cancelada"
     >
       <EmailText>Hola {customerName}, tu cita ha sido cancelada.</EmailText>
-      <EmailText>
-        <strong>Barbería:</strong> {businessName}
-        <br />
-        <strong>Servicio:</strong> {service}
-        <br />
-        <strong>Fecha:</strong> {date}
-        <br />
-        <strong>Hora:</strong> {time}
-      </EmailText>
-      {reason && <EmailText>Motivo: {reason}</EmailText>}
+      <EmailDetails
+        rows={[
+          { label: "Barbería", value: businessName },
+          { label: "Servicio", value: service },
+          { label: "Fecha", value: date },
+          { label: "Hora", value: time },
+          ...(reason ? [{ label: "Motivo", value: reason }] : [])
+        ]}
+      />
       <EmailText muted>
         Contacta con la barbería para encontrar una nueva hora disponible.
       </EmailText>

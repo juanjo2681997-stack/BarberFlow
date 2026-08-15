@@ -1,3 +1,4 @@
+import { EmailDetails } from "../components/EmailDetails";
 import { EmailText } from "../components/EmailText";
 import { EmailLayout } from "../layout";
 
@@ -22,15 +23,14 @@ export function BookingConfirmed({
       title="Cita confirmada"
     >
       <EmailText>Hola {customerName}, tu cita está confirmada.</EmailText>
-      <EmailText>
-        <strong>Barbería:</strong> {businessName}
-        <br />
-        <strong>Servicio:</strong> {service}
-        <br />
-        <strong>Fecha:</strong> {date}
-        <br />
-        <strong>Hora:</strong> {time}
-      </EmailText>
+      <EmailDetails
+        rows={[
+          { label: "Barbería", value: businessName },
+          { label: "Servicio", value: service },
+          { label: "Fecha", value: date },
+          { label: "Hora", value: time }
+        ]}
+      />
       <EmailText muted>
         Te recomendamos llegar unos minutos antes de la hora reservada.
       </EmailText>

@@ -8,15 +8,19 @@ type EmailButtonProps = {
 export function EmailButton({ href, children }: EmailButtonProps) {
   return (
     <a
+      className="bf-button"
       href={href}
       style={{
         backgroundColor: "#d8a24a",
-        borderRadius: "12px",
+        border: "1px solid #e5b866",
+        borderRadius: "10px",
         color: "#111111",
         display: "inline-block",
         fontSize: "15px",
-        fontWeight: 700,
-        padding: "13px 18px",
+        fontWeight: 800,
+        lineHeight: "20px",
+        marginTop: "8px",
+        padding: "14px 22px",
         textDecoration: "none"
       }}
     >

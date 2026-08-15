@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { sendResendEmail } from "@/lib/email/resend";
+import { sendEmail } from "@/lib/email/sendEmail";
 
 export const runtime = "nodejs";
 
@@ -66,22 +66,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    await sendResendEmail({
+    await sendEmail({
       to,
       subject: "BarberFlow - email de prueba",
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
-          <h1 style="font-size:22px">BarberFlow</h1>
-          <p>Este es un email de prueba enviado desde BarberFlow.</p>
-          <p>Si has recibido este correo, Resend y BARBERFLOW_EMAIL_FROM estan funcionando correctamente.</p>
-          <p>
-            <a href="${getAppUrl(request)}" style="display:inline-block;background:#d8a24a;color:#111;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:bold">
-              Abrir BarberFlow
-            </a>
-          </p>
-        </div>
-      `,
-      text: `Este es un email de prueba enviado desde BarberFlow.\n\nSi has recibido este correo, Resend y BARBERFLOW_EMAIL_FROM estan funcionando correctamente.\n\n${getAppUrl(request)}`
+      template: "VerifyEmail",
+      props: {
+        name: "Juanjo",
+        verificationUrl: getAppUrl(request)
+      }
     });
 
     return NextResponse.json({ ok: true, to });
