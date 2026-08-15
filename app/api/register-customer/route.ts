@@ -126,7 +126,12 @@ export async function POST(request: Request) {
     console.error("Error registering customer:", error);
 
     return NextResponse.json(
-      { error: "No se pudo crear la cuenta de cliente." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "No se pudo crear la cuenta de cliente."
+      },
       { status: 500 }
     );
   }
