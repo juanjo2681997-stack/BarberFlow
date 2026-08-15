@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sendEmail } from "@/lib/email/sendEmail";
 
 export const runtime = "nodejs";
 
@@ -117,22 +118,6 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
-function getAuthClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!supabaseUrl || !publishableKey) {
-    return null;
-  }
-
-  return createClient(supabaseUrl, publishableKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
-}
-
 function getAppOrigin(request: Request) {
   const configuredUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -198,9 +183,8 @@ function addDays(date: Date, days: number) {
 
 export async function POST(request: Request) {
   const supabase = getAdminClient();
-  const authClient = getAuthClient();
 
-  if (!supabase || !authClient) {
+  if (!supabase) {
     return NextResponse.json(
       { error: "Faltan variables de entorno de Supabase." },
       { status: 500 }
@@ -231,31 +215,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const emailRedirectTo = `${getAppOrigin(
+    const redirectTo = `${getAppOrigin(
       request
     )}/auth/callback?mode=verify&next=/panel`;
-    const { data: userData, error: userError } = await authClient.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo,
-        data: {
-          full_name: ownerName,
-          business_name: businessName
+    const { data: userData, error: userError } =
+      await supabase.auth.admin.generateLink({
+        type: "signup",
+        email,
+        password,
+        options: {
+          data: {
+            full_name: ownerName,
+            business_name: businessName
+          },
+          redirectTo
         }
-      }
-    });
+      });
 
-    const userIdentities = userData.user?.identities ?? [];
+    const verificationUrl = userData.properties?.action_link;
 
-    if (userData.user && userIdentities.length === 0) {
-      return NextResponse.json(
-        { error: "Ya existe una cuenta con ese email." },
-        { status: 400 }
-      );
-    }
-
-    if (userError || !userData.user) {
+    if (userError || !userData.user || !verificationUrl) {
       const message = userError?.message ?? "No se pudo crear el usuario.";
 
       return NextResponse.json(
@@ -426,6 +405,16 @@ export async function POST(request: Request) {
     if (employeeWorkingHoursError) {
       throw new Error(employeeWorkingHoursError.message);
     }
+
+    await sendEmail({
+      to: email,
+      subject: "Confirma tu correo en BarberFlow",
+      template: "VerifyEmail",
+      props: {
+        name: ownerName,
+        verificationUrl
+      }
+    });
 
     return NextResponse.json({
       ok: true,

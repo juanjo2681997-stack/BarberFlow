@@ -1829,31 +1829,28 @@ export default function Home() {
 
     const fullName = `${customerAuthForm.firstName.trim()} ${customerAuthForm.lastName.trim()}`;
 
-    const { data, error } = await supabase.auth.signUp({
-      email: customerAuthForm.email.trim(),
-      password: customerAuthForm.password,
-      options: {
-        emailRedirectTo: getEmailRedirectTo("/"),
-        data: {
-          full_name: fullName,
-          phone: customerAuthForm.phone.trim()
-        }
-      }
+    const response = await fetch("/api/register-customer", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: customerAuthForm.email.trim(),
+        password: customerAuthForm.password,
+        full_name: fullName,
+        phone: customerAuthForm.phone.trim()
+      })
     });
+    const result = await response.json().catch(() => null);
 
     setIsCustomerAuthLoading(false);
 
-    if (error) {
+    if (!response.ok) {
       setCustomerMessage({
-        text: getFriendlyAuthError(error),
+        text: result?.error ?? "No se pudo crear la cuenta.",
         type: "error"
       });
       return;
-    }
-
-    if (data.session) {
-      await supabase.auth.signOut();
-      clearCustomerData();
     }
 
     setCustomerAuthForm(initialCustomerAuthForm);
