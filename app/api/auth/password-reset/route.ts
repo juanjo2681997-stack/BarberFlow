@@ -25,6 +25,20 @@ function getUserDisplayName(user: { user_metadata?: Record<string, unknown> }) {
   return fullName || name || undefined;
 }
 
+function getFriendlyEmailError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+
+  if (message.includes("domain is not verified")) {
+    return "El dominio de email de BarberFlow todavía no está verificado en Resend.";
+  }
+
+  if (message.includes("invalid api key") || message.includes("api key")) {
+    return "La clave de Resend no está configurada correctamente.";
+  }
+
+  return "No se pudo enviar el email de recuperación.";
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
@@ -85,10 +99,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "No se pudo enviar el email de recuperación."
+        error: getFriendlyEmailError(error)
       },
       { status: 500 }
     );
