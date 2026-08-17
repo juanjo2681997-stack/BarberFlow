@@ -3,13 +3,15 @@ type ResendEmailPayload = {
   subject: string;
   html: string;
   text?: string;
+  idempotencyKey?: string;
 };
 
 export async function sendResendEmail({
   to,
   subject,
   html,
-  text
+  text,
+  idempotencyKey
 }: ResendEmailPayload) {
   const resendApiKey = process.env.RESEND_API_KEY;
   const from = process.env.BARBERFLOW_EMAIL_FROM;
@@ -26,7 +28,8 @@ export async function sendResendEmail({
     method: "POST",
     headers: {
       Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
     },
     body: JSON.stringify({
       from,

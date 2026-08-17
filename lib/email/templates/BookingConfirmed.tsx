@@ -8,6 +8,10 @@ export type BookingConfirmedProps = {
   service: string;
   date: string;
   time: string;
+  barberName?: string;
+  duration?: string;
+  price?: string;
+  address?: string;
 };
 
 export function BookingConfirmed({
@@ -15,7 +19,11 @@ export function BookingConfirmed({
   businessName,
   service,
   date,
-  time
+  time,
+  barberName,
+  duration,
+  price,
+  address
 }: BookingConfirmedProps) {
   return (
     <EmailLayout
@@ -28,7 +36,11 @@ export function BookingConfirmed({
           { label: "Barbería", value: businessName },
           { label: "Servicio", value: service },
           { label: "Fecha", value: date },
-          { label: "Hora", value: time }
+          { label: "Hora", value: time },
+          ...(barberName ? [{ label: "Barbero", value: barberName }] : []),
+          ...(duration ? [{ label: "Duracion", value: duration }] : []),
+          ...(price ? [{ label: "Precio", value: price }] : []),
+          ...(address ? [{ label: "Direccion", value: address }] : [])
         ]}
       />
       <EmailText muted>
@@ -43,12 +55,25 @@ export function bookingConfirmedText({
   businessName,
   service,
   date,
-  time
+  time,
+  barberName,
+  duration,
+  price,
+  address
 }: BookingConfirmedProps) {
+  const optionalRows = [
+    barberName ? `Barbero: ${barberName}` : "",
+    duration ? `Duracion: ${duration}` : "",
+    price ? `Precio: ${price}` : "",
+    address ? `Direccion: ${address}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return `Hola ${customerName}, tu cita está confirmada.
 
 Barbería: ${businessName}
 Servicio: ${service}
 Fecha: ${date}
-Hora: ${time}`;
+Hora: ${time}${optionalRows ? `\n${optionalRows}` : ""}`;
 }

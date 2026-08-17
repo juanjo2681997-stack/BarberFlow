@@ -11,13 +11,15 @@ type SendEmailParams<TTemplate extends EmailTemplateName> = {
   subject: string;
   template: TTemplate;
   props: EmailTemplateProps[TTemplate];
+  idempotencyKey?: string;
 };
 
 export async function sendEmail<TTemplate extends EmailTemplateName>({
   to,
   subject,
   template,
-  props
+  props,
+  idempotencyKey
 }: SendEmailParams<TTemplate>) {
   const templateDefinition = emailTemplates[template];
   const TemplateComponent = templateDefinition.component as ComponentType<
@@ -33,7 +35,8 @@ export async function sendEmail<TTemplate extends EmailTemplateName>({
     to,
     subject,
     html,
-    text
+    text,
+    idempotencyKey
   });
 }
 

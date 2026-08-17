@@ -2567,6 +2567,58 @@ export default function Home() {
     }));
   }
 
+  async function sendBookingConfirmationEmail(
+    appointmentId: string,
+    serviceId: string
+  ) {
+    if (!currentBusinessId) {
+      console.warn("Booking confirmation email skipped: missing business id.", {
+        appointmentId
+      });
+      return;
+    }
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        console.warn("Booking confirmation email skipped: missing session.", {
+          appointmentId,
+          businessId: currentBusinessId
+        });
+        return;
+      }
+
+      const response = await fetch("/api/bookings/confirmation-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          appointmentId,
+          businessId: currentBusinessId,
+          serviceId
+        })
+      });
+
+      if (!response.ok) {
+        console.warn("Booking confirmation email request failed:", {
+          appointmentId,
+          businessId: currentBusinessId,
+          status: response.status
+        });
+      }
+    } catch (error) {
+      console.warn("Booking confirmation email request error:", {
+        appointmentId,
+        businessId: currentBusinessId,
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
   async function confirmBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -2815,6 +2867,8 @@ export default function Home() {
       return;
     }
 
+    await sendBookingConfirmationEmail(appointmentId, selectedService.id);
+
     const nextDayAppointments = [
       ...dayAppointments,
       {
@@ -2847,7 +2901,7 @@ export default function Home() {
       customerPhone
     });
     setFormMessage({
-      text: "Cita reservada correctamente. Te esperamos en Pablo's Barbershop.",
+      text: `Cita reservada correctamente. Te esperamos en ${businessSettings.business_name}.`,
       type: "success"
     });
     setFormData({
