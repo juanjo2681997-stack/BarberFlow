@@ -20,7 +20,7 @@ export function ResetPassword({ name, resetUrl }: ResetPasswordProps) {
       <EmailText>
         Si has sido tú, pulsa el botón para crear una contraseña nueva.
       </EmailText>
-      <EmailButton href={resetUrl}>Cambiar contraseña</EmailButton>
+      <EmailButton href={resetUrl}>Recuperar contraseña</EmailButton>
     </EmailLayout>
   );
 }

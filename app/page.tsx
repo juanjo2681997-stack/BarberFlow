@@ -2992,7 +2992,14 @@ export default function Home() {
           </div>
 
           <Link
-            className="mt-6 block text-center text-xs font-semibold text-white/45 transition hover:text-barber-gold"
+            className="mt-5 block rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-center text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+            href="/olvide-contrasena"
+          >
+            ¿Has olvidado tu contraseña?
+          </Link>
+
+          <Link
+            className="mt-4 block text-center text-xs font-semibold text-white/45 transition hover:text-barber-gold"
             href="/registro-barberia"
           >
             Registrar mi barbería
@@ -3099,6 +3106,12 @@ export default function Home() {
               >
                 {isBarberAuthLoading ? "Entrando..." : "Iniciar sesión"}
               </button>
+              <Link
+                className="block rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-center text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+                href="/olvide-contrasena"
+              >
+                ¿Has olvidado tu contraseña?
+              </Link>
             </div>
           </div>
         </section>
@@ -3207,6 +3220,12 @@ export default function Home() {
               >
                 {isCustomerAuthLoading ? "Entrando..." : "Iniciar sesión"}
               </button>
+              <Link
+                className="block rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-center text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+                href="/olvide-contrasena"
+              >
+                ¿Has olvidado tu contraseña?
+              </Link>
             </div>
           </div>
 
@@ -3788,6 +3807,12 @@ export default function Home() {
               >
                 {isCustomerAuthLoading ? "Entrando..." : "Iniciar sesión"}
               </button>
+              <Link
+                className="block rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-center text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+                href="/olvide-contrasena"
+              >
+                ¿Has olvidado tu contraseña?
+              </Link>
               </div>
             </div>
 

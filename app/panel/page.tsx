@@ -4676,6 +4676,12 @@ export default function BarberPanel() {
             >
               Entrar
             </button>
+            <Link
+              className="block rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-5 py-3 text-center text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98]"
+              href="/olvide-contrasena"
+            >
+              ¿Has olvidado tu contraseña?
+            </Link>
           </div>
           {loginError && (
             <p className="mt-5 whitespace-pre-line rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
