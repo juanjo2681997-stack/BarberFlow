@@ -814,6 +814,9 @@ export default function BarberPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
   const [panelAccessDenied, setPanelAccessDenied] = useState(false);
+  const [panelAccessMessage, setPanelAccessMessage] = useState(
+    "No tienes permiso para acceder al panel del barbero."
+  );
   const [panelBusinessMissing, setPanelBusinessMissing] = useState(false);
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
   const [currentBusinessName, setCurrentBusinessName] = useState("");
@@ -1319,13 +1322,48 @@ export default function BarberPanel() {
     setSettingsMessageType("success");
     if (!keepAccessDenied) {
       setPanelAccessDenied(false);
+      setPanelAccessMessage(
+        "No tienes permiso para acceder al panel del barbero."
+      );
     }
     setPanelBusinessMissing(false);
+  }
+
+  async function getOwnerActivationStatus() {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      return "none";
+    }
+
+    const response = await fetch(
+      "/api/profile-activation/status?profile_type=owner",
+      {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return "none";
+    }
+
+    const data = await response.json().catch(() => null);
+
+    return data?.status === "pending" || data?.status === "expired"
+      ? data.status
+      : "none";
   }
 
   async function verifyAdminAccess() {
     setIsCheckingAdmin(true);
     setPanelAccessDenied(false);
+    setPanelAccessMessage(
+      "No tienes permiso para acceder al panel del barbero."
+    );
     setPanelBusinessMissing(false);
 
     const {
@@ -1361,6 +1399,15 @@ export default function BarberPanel() {
       if (isAdmin === true) {
         setPanelBusinessMissing(true);
       } else {
+        const ownerActivationStatus = await getOwnerActivationStatus();
+
+        setPanelAccessMessage(
+          ownerActivationStatus === "pending"
+            ? "Tu perfil de barbería todavía no está activado. Revisa el correo y pulsa el enlace de activación para terminar el alta."
+            : ownerActivationStatus === "expired"
+              ? "El enlace para activar tu perfil de barbería ha caducado. Registra la barbería de nuevo con este email para recibir otro enlace."
+              : "No tienes permiso para acceder al panel del barbero."
+        );
         setPanelAccessDenied(true);
       }
 
@@ -1393,6 +1440,9 @@ export default function BarberPanel() {
     }
     setIsAuthenticated(true);
     setPanelAccessDenied(false);
+    setPanelAccessMessage(
+      "No tienes permiso para acceder al panel del barbero."
+    );
     setIsCheckingAdmin(false);
     await loadPanelData(assignedBusiness.businessId);
   }
@@ -4573,7 +4623,7 @@ export default function BarberPanel() {
             Acceso restringido
           </h1>
           <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
-            No tienes permiso para acceder al panel del barbero.
+            {panelAccessMessage}
           </p>
           <Link
             className="mt-4 block rounded-2xl border border-white/10 px-4 py-3 text-center text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"

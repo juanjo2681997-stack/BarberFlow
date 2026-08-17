@@ -1966,14 +1966,31 @@ export default function Home() {
       return;
     }
 
-    const isAdmin = await checkCustomerAdminAccess();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    const hasCustomerProfile = user
+      ? await hasCustomerProfileAccess(user)
+      : false;
+
+    if (!user || !hasCustomerProfile) {
+      await supabase.auth.signOut();
+      clearCustomerData();
+      setCustomerMessage({
+        text: "Esta cuenta no tiene perfil de cliente activo. Crea tu cuenta de cliente o actívala desde el correo.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsCustomerAdmin(false);
+    await loadCustomerProfile(user);
 
     setCustomerLoginForm(initialCustomerLoginForm);
     setCustomerMessage({
-      text: isAdmin
-        ? "Esta cuenta pertenece a un barbero. Accede desde el Área barbero."
-        : "Sesión iniciada.",
-      type: isAdmin ? "error" : "success"
+      text: "Sesión iniciada.",
+      type: "success"
     });
   }
 
