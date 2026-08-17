@@ -1854,6 +1854,15 @@ export default function Home() {
     }
 
     setCustomerAuthForm(initialCustomerAuthForm);
+    if (result?.activation_required) {
+      setCustomerVerificationNotice(null);
+      setCustomerMessage({
+        text: "Te hemos enviado un correo para activar tu perfil de BarberFlow.",
+        type: "success"
+      });
+      return;
+    }
+
     setCustomerVerificationNotice({
       email: customerAuthForm.email.trim().toLowerCase(),
       kind: "created"

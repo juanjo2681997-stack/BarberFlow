@@ -8,7 +8,7 @@ type ConfirmationState = "loading" | "success" | "expired" | "used" | "invalid";
 
 function getMessage(state: ConfirmationState) {
   if (state === "success") {
-    return "Solicitud confirmada correctamente.";
+    return "Perfil activado correctamente.";
   }
 
   if (state === "expired") {

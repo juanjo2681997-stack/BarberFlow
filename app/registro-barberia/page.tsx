@@ -97,6 +97,17 @@ export default function RegisterBusinessPage() {
         throw new Error(data?.error || "No se pudo registrar la barbería.");
       }
 
+      if (data?.activation_required) {
+        setResult(null);
+        setForm(initialForm);
+        setMessage(
+          data.message ||
+            "Te hemos enviado un correo para activar tu perfil de BarberFlow."
+        );
+        setIsError(false);
+        return;
+      }
+
       setResult(data as RegisterBusinessResult);
       setForm(initialForm);
       setMessage("Barbería registrada correctamente.");

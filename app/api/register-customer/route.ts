@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email/sendEmail";
+import {
+  createProfileActivationRequest,
+  findAuthUserByEmail,
+  hasCustomerProfile,
+  hasOwnerProfile
+} from "../profile-activation/_utils";
 
 export const runtime = "nodejs";
 
@@ -77,6 +83,51 @@ export async function POST(request: Request) {
         { error: "La contrasena debe tener al menos 8 caracteres." },
         { status: 400 }
       );
+    }
+
+    const existingUser = await findAuthUserByEmail(supabase, email);
+
+    if (existingUser) {
+      const alreadyCustomer = await hasCustomerProfile(supabase, existingUser.id);
+
+      if (alreadyCustomer) {
+        return NextResponse.json(
+          { error: "Este email ya tiene un perfil de cliente activo." },
+          { status: 409 }
+        );
+      }
+
+      const alreadyOwner = await hasOwnerProfile(supabase, existingUser.id, email);
+
+      if (!alreadyOwner) {
+        return NextResponse.json(
+          {
+            error:
+              "Ya existe una cuenta con ese email. Inicia sesión para continuar."
+          },
+          { status: 409 }
+        );
+      }
+
+      await createProfileActivationRequest({
+        request,
+        supabaseAdmin: supabase,
+        userId: existingUser.id,
+        email,
+        profileType: "customer",
+        payload: {
+          full_name: fullName,
+          phone
+        },
+        name: fullName
+      });
+
+      return NextResponse.json({
+        ok: true,
+        activation_required: true,
+        email,
+        message: "Te hemos enviado un correo para activar tu perfil de BarberFlow."
+      });
     }
 
     const redirectTo = `${getAppOrigin(

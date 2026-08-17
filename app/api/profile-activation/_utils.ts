@@ -6,6 +6,25 @@ export type ProfileType = "customer" | "owner";
 
 export type ActivationPayload = Record<string, string>;
 
+type SupabaseAdminClient = {
+  auth: {
+    getUser: (token: string) => Promise<{
+      data: { user: User | null };
+      error: { message: string } | null;
+    }>;
+    admin: {
+      listUsers: (params: {
+        page: number;
+        perPage: number;
+      }) => Promise<{
+        data: { users: User[] };
+        error: { message: string } | null;
+      }>;
+    };
+  };
+  from: (table: string) => any;
+};
+
 export const activationTokenMinutes = 30;
 
 export function getSupabaseAdmin() {
@@ -55,7 +74,10 @@ export function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function cleanPayload(profileType: ProfileType, payload: unknown) {
+export function cleanPayload(
+  profileType: ProfileType,
+  payload: unknown
+): ActivationPayload {
   const source =
     payload && typeof payload === "object"
       ? (payload as Record<string, unknown>)
@@ -127,18 +149,6 @@ export function getActivationUrl(request: Request, token: string) {
   )}`;
 }
 
-function getEmailSubject(profileType: ProfileType) {
-  return profileType === "owner"
-    ? "Confirma tu perfil de barbería en BarberFlow"
-    : "Confirma tu perfil de cliente en BarberFlow";
-}
-
-function getEmailCopy(profileType: ProfileType) {
-  return profileType === "owner"
-    ? "Has solicitado activar tu perfil de propietario de barbería dentro de BarberFlow."
-    : "Has solicitado activar tu perfil de cliente dentro de BarberFlow.";
-}
-
 export async function sendProfileActivationEmail(params: {
   request: Request;
   email: string;
@@ -146,74 +156,171 @@ export async function sendProfileActivationEmail(params: {
   token: string;
   name?: string;
 }) {
-  {
-    const activationUrl = getActivationUrl(params.request, params.token);
-
-    await sendEmail({
-      to: params.email,
-      subject:
-        params.profileType === "owner"
-          ? "Confirma tu perfil de barberia en BarberFlow"
-          : "Confirma tu perfil de cliente en BarberFlow",
-      template:
-        params.profileType === "owner" ? "ActivateOwner" : "ActivateCustomer",
-      props: {
-        name: params.name,
-        activationUrl
-      }
-    });
-
-    return;
-  }
-
-  const resendApiKey = process.env.RESEND_API_KEY;
-  const emailFrom = process.env.BARBERFLOW_EMAIL_FROM;
-
-  if (!resendApiKey) {
-    throw new Error("Falta RESEND_API_KEY.");
-  }
-
-  if (!emailFrom) {
-    throw new Error("Falta BARBERFLOW_EMAIL_FROM.");
-  }
-
   const activationUrl = getActivationUrl(params.request, params.token);
-  const subject = getEmailSubject(params.profileType);
-  const copy = getEmailCopy(params.profileType);
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: emailFrom,
-      to: params.email,
-      subject,
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111">
-          <h1 style="font-size:22px">BarberFlow</h1>
-          <p>${copy}</p>
-          <p>Pulsa el siguiente botón para confirmar esta activación.</p>
-          <p>
-            <a href="${activationUrl}" style="display:inline-block;background:#d8a24a;color:#111;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:bold">
-              Confirmar perfil
-            </a>
-          </p>
-          <p>Este enlace caduca en ${activationTokenMinutes} minutos.</p>
-          <p>Si no has solicitado esta activación, puedes ignorar este correo.</p>
-        </div>
-      `,
-      text: `${copy}\n\nConfirma esta activación aquí:\n${activationUrl}\n\nEste enlace caduca en ${activationTokenMinutes} minutos.\n\nSi no has solicitado esta activación, puedes ignorar este correo.`
-    })
+  await sendEmail({
+    to: params.email,
+    subject:
+      params.profileType === "owner"
+        ? "Confirma tu perfil de barbería en BarberFlow"
+        : "Confirma tu perfil de cliente en BarberFlow",
+    template: params.profileType === "owner" ? "ActivateOwner" : "ActivateCustomer",
+    props: {
+      name: params.name,
+      activationUrl
+    }
   });
-
-  if (!response.ok) {
-    throw new Error("No se pudo enviar el correo de activación.");
-  }
 }
 
 export function getUserEmail(user: User) {
   return typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+}
+
+export async function findAuthUserByEmail(
+  supabaseAdmin: SupabaseAdminClient,
+  email: string
+) {
+  const cleanEmail = email.trim().toLowerCase();
+  const perPage = 1000;
+
+  for (let page = 1; page <= 50; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const users = data.users ?? [];
+    const foundUser = users.find(
+      (user) => getUserEmail(user) === cleanEmail
+    );
+
+    if (foundUser || users.length < perPage) {
+      return foundUser ?? null;
+    }
+  }
+
+  return null;
+}
+
+export async function hasCustomerProfile(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string
+) {
+  const { data, error } = await supabaseAdmin
+    .from("customer_profiles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return Boolean(data);
+}
+
+export async function hasOwnerProfile(
+  supabaseAdmin: SupabaseAdminClient,
+  userId: string,
+  email: string
+) {
+  let result = await supabaseAdmin
+    .from("business_users")
+    .select("business_id")
+    .eq("user_id", userId)
+    .eq("role", "owner")
+    .limit(1)
+    .maybeSingle();
+
+  if (!result.data && email) {
+    result = await supabaseAdmin
+      .from("business_users")
+      .select("business_id")
+      .eq("email", email)
+      .eq("role", "owner")
+      .limit(1)
+      .maybeSingle();
+  }
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return Boolean(result.data);
+}
+
+export async function createProfileActivationRequest(params: {
+  request: Request;
+  supabaseAdmin: SupabaseAdminClient;
+  userId: string;
+  email: string;
+  profileType: ProfileType;
+  payload: ActivationPayload;
+  name?: string;
+}) {
+  const payloadError = validatePayload(params.profileType, params.payload);
+
+  if (payloadError) {
+    throw new Error(payloadError);
+  }
+
+  const now = new Date().toISOString();
+
+  const { error: invalidateError } = await params.supabaseAdmin
+    .from("profile_activation_requests")
+    .update({ used_at: now })
+    .eq("user_id", params.userId)
+    .eq("profile_type", params.profileType)
+    .is("used_at", null);
+
+  if (invalidateError) {
+    throw new Error(invalidateError.message);
+  }
+
+  const token = generateActivationToken();
+  const tokenHash = hashActivationToken(token);
+  const expiresAt = getExpiresAt();
+
+  const { data: activationRequest, error: insertError } = await params.supabaseAdmin
+    .from("profile_activation_requests")
+    .insert({
+      email: params.email,
+      user_id: params.userId,
+      profile_type: params.profileType,
+      token_hash: tokenHash,
+      payload: params.payload,
+      expires_at: expiresAt
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !activationRequest) {
+    throw new Error(insertError?.message ?? "No se pudo crear la solicitud.");
+  }
+
+  try {
+    await sendProfileActivationEmail({
+      request: params.request,
+      email: params.email,
+      profileType: params.profileType,
+      token,
+      name: params.name
+    });
+  } catch (error) {
+    await params.supabaseAdmin
+      .from("profile_activation_requests")
+      .update({ used_at: new Date().toISOString() })
+      .eq("id", activationRequest.id);
+
+    throw error;
+  }
+
+  return {
+    id: activationRequest.id as string,
+    expires_at: expiresAt
+  };
 }
