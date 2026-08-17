@@ -3561,6 +3561,8 @@ export default function Home() {
         )}
 
         <div className="mt-5 space-y-5">
+          {renderCustomerAppointmentsSection()}
+
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
               Sesión activa
@@ -3692,7 +3694,6 @@ export default function Home() {
             )}
           </div>
 
-          {renderCustomerAppointmentsSection()}
         </div>
       </section>
     );
