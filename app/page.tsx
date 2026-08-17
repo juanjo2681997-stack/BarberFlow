@@ -181,6 +181,7 @@ type BusinessUserAssignment = {
 };
 
 type AccessMode = "initial" | "customer" | "barber";
+type CustomerSection = "booking" | "profile";
 
 const mainBarber = "Pablo";
 
@@ -829,6 +830,8 @@ export default function Home() {
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [accessMode, setAccessMode] = useState<AccessMode>("initial");
+  const [customerSection, setCustomerSection] =
+    useState<CustomerSection>("booking");
   const [barberLoginForm, setBarberLoginForm] = useState<CustomerLoginForm>(
     initialCustomerLoginForm
   );
@@ -1141,6 +1144,7 @@ export default function Home() {
   }
 
   function prepareBusinessSelection(business: Business) {
+    setCustomerSection("booking");
     setCurrentBusiness(business);
     setCurrentBusinessId(business.id);
     currentBusinessIdRef.current = business.id;
@@ -1292,10 +1296,12 @@ export default function Home() {
   }
 
   function selectBusiness(business: Business) {
+    setCustomerSection("booking");
     prepareBusinessSelection(business);
   }
 
   function changeBusiness() {
+    setCustomerSection("booking");
     setCurrentBusiness(null);
     setCurrentBusinessId(null);
     currentBusinessIdRef.current = null;
@@ -3446,9 +3452,221 @@ export default function Home() {
     );
   }
 
+  function showBookingSection() {
+    setCustomerSection("booking");
+
+    if (!isDirectBusinessEntry && currentBusinessId) {
+      changeBusiness();
+    }
+  }
+
+  function renderCustomerSectionTabs() {
+    if (!isCustomerLoggedIn || isCustomerAdmin || isDirectBusinessEntry) {
+      return null;
+    }
+
+    return (
+      <div className="mx-auto mb-5 grid w-full max-w-md grid-cols-2 gap-1 rounded-2xl border border-white/10 bg-black/25 p-1">
+        <button
+          className={
+            customerSection === "booking"
+              ? "rounded-xl bg-barber-gold px-3 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/15"
+              : "rounded-xl px-3 py-3 text-sm font-bold text-white/60 transition hover:bg-white/[0.06] hover:text-barber-gold"
+          }
+          onClick={showBookingSection}
+          type="button"
+        >
+          ¿Dónde quieres reservar?
+        </button>
+        <button
+          className={
+            customerSection === "profile"
+              ? "rounded-xl bg-barber-gold px-3 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/15"
+              : "rounded-xl px-3 py-3 text-sm font-bold text-white/60 transition hover:bg-white/[0.06] hover:text-barber-gold"
+          }
+          onClick={() => setCustomerSection("profile")}
+          type="button"
+        >
+          Mi perfil
+        </button>
+      </div>
+    );
+  }
+
+  function renderCustomerProfileSection() {
+    return (
+      <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+        <h1 className="text-3xl font-bold text-white">Mi perfil</h1>
+        <p className="mt-2 text-sm leading-6 text-white/65">
+          Gestiona tus datos de cliente.
+        </p>
+
+        {customerMessage && (
+          <p
+            className={
+              customerMessage.type === "success"
+                ? "mt-4 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                : "mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+            }
+          >
+            {customerMessage.text}
+          </p>
+        )}
+
+        <div className="mt-5 space-y-5">
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
+              Sesión activa
+            </p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {customerUser?.email}
+            </p>
+            <button
+              className="mt-4 w-full rounded-2xl border border-red-400/40 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isCustomerAuthLoading}
+              onClick={logoutCustomer}
+              type="button"
+            >
+              {isCustomerAuthLoading ? "Cerrando..." : "Cerrar sesión"}
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h2 className="text-lg font-bold text-white">Datos de contacto</h2>
+            {isLoadingCustomerProfile ? (
+              <p className="mt-3 text-sm text-white/60">Cargando perfil...</p>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-sm font-bold text-white">Foto de perfil</p>
+                  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+                    {normalizeOptionalText(customerProfile.avatar_url) ? (
+                      <img
+                        alt={
+                          customerProfile.full_name.trim() ||
+                          customerUser?.email ||
+                          "Cliente"
+                        }
+                        className="h-20 w-20 rounded-full border border-barber-gold/30 object-cover shadow-lg shadow-black/30"
+                        src={normalizeOptionalText(customerProfile.avatar_url)}
+                      />
+                    ) : (
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-barber-gold/30 bg-barber-gold/10 text-3xl font-bold text-barber-gold shadow-lg shadow-black/30">
+                        {getProfileInitial(
+                          customerProfile.full_name || customerUser?.email || ""
+                        )}
+                      </div>
+                    )}
+
+                    <div className="w-full space-y-3">
+                      <input
+                        accept="image/jpeg,image/png,image/webp"
+                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white file:mr-4 file:rounded-full file:border-0 file:bg-barber-gold file:px-4 file:py-2 file:text-sm file:font-bold file:text-black"
+                        onChange={handleCustomerAvatarFileChange}
+                        type="file"
+                      />
+                      <p className="text-xs leading-5 text-white/45">
+                        JPG, PNG o WebP. Tamaño máximo: 3 MB.
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <button
+                          className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={!customerAvatarFile || isUploadingCustomerAvatar}
+                          onClick={uploadCustomerAvatar}
+                          type="button"
+                        >
+                          {isUploadingCustomerAvatar ? "Subiendo..." : "Subir foto"}
+                        </button>
+                        <button
+                          className="rounded-2xl border border-red-400/35 px-5 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={
+                            !customerProfile.avatar_url || isUploadingCustomerAvatar
+                          }
+                          onClick={removeCustomerAvatar}
+                          type="button"
+                        >
+                          Quitar foto
+                        </button>
+                      </div>
+                      {customerAvatarMessage && (
+                        <p
+                          className={
+                            customerAvatarMessage.type === "success"
+                              ? "text-sm font-semibold text-barber-gold"
+                              : "text-sm font-semibold text-red-100"
+                          }
+                        >
+                          {customerAvatarMessage.text}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Nombre completo
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerProfile("full_name", event.target.value)
+                    }
+                    placeholder="Tu nombre"
+                    type="text"
+                    value={customerProfile.full_name}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/70">
+                    Teléfono
+                  </span>
+                  <input
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                    onChange={(event) =>
+                      updateCustomerProfile("phone", event.target.value)
+                    }
+                    placeholder="Tu teléfono"
+                    type="tel"
+                    value={customerProfile.phone}
+                  />
+                </label>
+
+                <button
+                  className="w-full rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isSavingCustomerProfile}
+                  onClick={saveCustomerProfile}
+                  type="button"
+                >
+                  {isSavingCustomerProfile ? "Guardando..." : "Guardar perfil"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (
+    customerSection === "profile" &&
+    isCustomerLoggedIn &&
+    !isCustomerAdmin &&
+    !isDirectBusinessEntry
+  ) {
+    return (
+      <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        {renderCustomerSectionTabs()}
+        {renderCustomerProfileSection()}
+      </main>
+    );
+  }
+
   if (!currentBusinessId) {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
+        {renderCustomerSectionTabs()}
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -3547,6 +3765,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col bg-barber-black px-5 py-6 text-barber-cream">
+      {renderCustomerSectionTabs()}
       <section className="order-1 mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-between rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <div>
           <div className="mb-8 flex items-center justify-between">
@@ -3793,7 +4012,10 @@ export default function Home() {
         )}
       </section>
 
-      <section className="order-5 mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
+      <section
+        aria-hidden="true"
+        className="hidden"
+      >
         <h2 className="text-2xl font-bold text-white">Mi perfil</h2>
         <p className="mt-2 text-sm leading-6 text-white/65">
           Gestiona tus datos de cliente y consulta tus próximas citas.
