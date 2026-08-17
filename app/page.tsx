@@ -174,6 +174,12 @@ type CustomerLoginForm = {
   password: string;
 };
 
+type BusinessUserAssignment = {
+  business_id: string | null;
+  role: string | null;
+  employee_id: string | null;
+};
+
 type AccessMode = "initial" | "customer" | "barber";
 
 const mainBarber = "Pablo";
@@ -1641,7 +1647,15 @@ export default function Home() {
 
   async function handleAuthenticatedUser(user: User) {
     setCustomerUser(user);
-    const isAdmin = await checkCustomerAdminAccess();
+    const hasCustomerProfile = await hasCustomerProfileAccess(user);
+
+    if (hasCustomerProfile) {
+      setIsCustomerAdmin(false);
+      await loadCustomerProfile(user);
+      return;
+    }
+
+    const isAdmin = await checkCustomerAdminAccessForUser(user);
 
     if (isAdmin) {
       setCustomerProfile({
@@ -1656,6 +1670,82 @@ export default function Home() {
     }
 
     await loadCustomerProfile(user);
+  }
+
+  async function hasCustomerProfileAccess(user: User) {
+    const { data, error } = await supabase
+      .from("customer_profiles")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error checking customer profile:", error);
+      return false;
+    }
+
+    return Boolean(data);
+  }
+
+  async function checkCustomerAdminAccessForUser(user: User) {
+    const selectQuery = "business_id, role, employee_id";
+    let businessUserResult = await supabase
+      .from("business_users")
+      .select(selectQuery)
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!businessUserResult.data && user.email) {
+      businessUserResult = await supabase
+        .from("business_users")
+        .select(selectQuery)
+        .eq("email", user.email)
+        .limit(1)
+        .maybeSingle();
+    }
+
+    if (businessUserResult.error) {
+      console.error("Error checking business user:", businessUserResult.error);
+    }
+
+    const assignment = businessUserResult.data as BusinessUserAssignment | null;
+
+    if (assignment?.business_id) {
+      if (assignment.employee_id) {
+        const { data: employeeData, error: employeeError } = await supabase
+          .from("employees")
+          .select("id, is_active, login_enabled")
+          .eq("id", assignment.employee_id)
+          .eq("business_id", assignment.business_id)
+          .maybeSingle();
+
+        if (employeeError) {
+          console.error("Error checking employee access:", employeeError);
+        }
+
+        if (employeeData?.is_active && employeeData?.login_enabled) {
+          setIsCustomerAdmin(true);
+          return true;
+        }
+      } else if (assignment.role === "owner" || assignment.role === "manager") {
+        setIsCustomerAdmin(true);
+        return true;
+      }
+    }
+
+    const { data, error } = await supabase.rpc("is_admin");
+
+    if (error) {
+      console.error("Error checking admin permissions:", error);
+      setIsCustomerAdmin(false);
+      return false;
+    }
+
+    const isAdmin = data === true;
+    setIsCustomerAdmin(isAdmin);
+
+    return isAdmin;
   }
 
   async function checkCustomerAdminAccess() {
@@ -1673,43 +1763,7 @@ export default function Home() {
       return false;
     }
 
-    let businessUserResult = await supabase
-      .from("business_users")
-      .select("business_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle();
-
-    if (!businessUserResult.data && user.email) {
-      businessUserResult = await supabase
-        .from("business_users")
-        .select("business_id")
-        .eq("email", user.email)
-        .limit(1)
-        .maybeSingle();
-    }
-
-    if (businessUserResult.error) {
-      console.error("Error checking business user:", businessUserResult.error);
-    }
-
-    if (businessUserResult.data) {
-      setIsCustomerAdmin(true);
-      return true;
-    }
-
-    const { data, error } = await supabase.rpc("is_admin");
-
-    if (error) {
-      console.error("Error checking admin permissions:", error);
-      setIsCustomerAdmin(false);
-      return false;
-    }
-
-    const isAdmin = data === true;
-    setIsCustomerAdmin(isAdmin);
-
-    return isAdmin;
+    return checkCustomerAdminAccessForUser(user);
   }
 
   function updateCustomerAuthField(field: keyof CustomerAuthForm, value: string) {
