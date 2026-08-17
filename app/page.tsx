@@ -989,12 +989,12 @@ export default function Home() {
   }, [currentBusinessId]);
 
   useEffect(() => {
-    if (!currentBusinessId || !customerUser || isCustomerAdmin) {
+    if (!customerUser || isCustomerAdmin) {
       return;
     }
 
     loadCustomerAppointments(customerUser.id);
-  }, [currentBusinessId, customerUser?.id, isCustomerAdmin]);
+  }, [customerUser?.id, isCustomerAdmin]);
 
   useEffect(() => {
     if (
@@ -2301,10 +2301,6 @@ export default function Home() {
   }
 
   async function loadCustomerAppointments(userId: string) {
-    if (!currentBusinessId) {
-      return;
-    }
-
     setIsLoadingCustomerAppointments(true);
     setCustomerAppointmentsMessage(null);
 
@@ -2314,7 +2310,6 @@ export default function Home() {
         "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status, status"
       )
       .eq("customer_user_id", userId)
-      .eq("business_id", currentBusinessId)
       .or("status.is.null,status.neq.cancelled")
       .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
@@ -3493,6 +3488,58 @@ export default function Home() {
     );
   }
 
+  function renderCustomerAppointmentsSection() {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <h2 className="text-lg font-bold text-white">Mis citas</h2>
+
+        {customerAppointmentsMessage && (
+          <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
+            {customerAppointmentsMessage.text}
+          </p>
+        )}
+
+        {isLoadingCustomerAppointments ? (
+          <p className="mt-3 text-sm text-white/60">Cargando tus citas...</p>
+        ) : customerAppointments.length === 0 ? (
+          <p className="mt-3 text-sm text-white/60">
+            Todavía no tienes citas guardadas en tu cuenta.
+          </p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {customerAppointments.map((appointment) => (
+              <article
+                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                key={appointment.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      {appointment.service}
+                    </p>
+                    <p className="mt-1 text-sm text-white/60">
+                      {appointment.appointment_date} ·{" "}
+                      {formatAppointmentTime(appointment.appointment_time)}
+                    </p>
+                  </div>
+                  {appointment.reminder_status && (
+                    <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
+                      {appointment.reminder_status}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 space-y-1 text-sm text-white/65">
+                  <p>{appointment.customer_name}</p>
+                  <p>{appointment.customer_phone}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderCustomerProfileSection() {
     return (
       <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
@@ -3644,6 +3691,8 @@ export default function Home() {
               </div>
             )}
           </div>
+
+          {renderCustomerAppointmentsSection()}
         </div>
       </section>
     );
@@ -4589,53 +4638,6 @@ export default function Home() {
         )}
       </section>
 
-      <section className="order-3 mx-auto mt-6 w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
-        <h2 className="text-2xl font-bold text-white">Mis citas</h2>
-
-        {customerAppointmentsMessage && (
-          <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
-            {customerAppointmentsMessage.text}
-          </p>
-        )}
-
-        {isLoadingCustomerAppointments ? (
-          <p className="mt-3 text-sm text-white/60">Cargando tus citas...</p>
-        ) : customerAppointments.length === 0 ? (
-          <p className="mt-3 text-sm text-white/60">
-            Todavía no tienes citas guardadas en tu cuenta.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {customerAppointments.map((appointment) => (
-              <article
-                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
-                key={appointment.id}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-white">
-                      {appointment.service}
-                    </p>
-                    <p className="mt-1 text-sm text-white/60">
-                      {appointment.appointment_date} ·{" "}
-                      {formatAppointmentTime(appointment.appointment_time)}
-                    </p>
-                  </div>
-                  {appointment.reminder_status && (
-                    <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
-                      {appointment.reminder_status}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-3 space-y-1 text-sm text-white/65">
-                  <p>{appointment.customer_name}</p>
-                  <p>{appointment.customer_phone}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
     </main>
   );
 }
