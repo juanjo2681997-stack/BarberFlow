@@ -133,6 +133,7 @@ type CustomerProfile = {
 
 type CustomerAppointment = {
   id: string;
+  business_id: string;
   service: string;
   appointment_date: string;
   appointment_time: string;
@@ -140,6 +141,7 @@ type CustomerAppointment = {
   customer_phone: string;
   reminder_status: string | null;
   status: string | null;
+  appointment_status: string | null;
 };
 
 type Review = {
@@ -339,6 +341,24 @@ function isPastHourForToday(
   }
 
   return timeToMinutes(hour) <= currentMinutes;
+}
+
+function getAppointmentDateTime(appointment: {
+  appointment_date: string;
+  appointment_time: string;
+}) {
+  return new Date(
+    `${appointment.appointment_date}T${formatAppointmentTime(
+      appointment.appointment_time
+    )}:00`
+  );
+}
+
+function canCustomerCancelAppointment(appointment: {
+  appointment_date: string;
+  appointment_time: string;
+}) {
+  return getAppointmentDateTime(appointment).getTime() - Date.now() >= 24 * 60 * 60 * 1000;
 }
 
 function getPastHours(
@@ -819,6 +839,8 @@ export default function Home() {
   const [customerAppointments, setCustomerAppointments] = useState<
     CustomerAppointment[]
   >([]);
+  const [cancellingCustomerAppointmentId, setCancellingCustomerAppointmentId] =
+    useState<string | null>(null);
   const [customerMessage, setCustomerMessage] = useState<FormMessage | null>(null);
   const [customerVerificationNotice, setCustomerVerificationNotice] =
     useState<VerificationNotice | null>(null);
@@ -861,6 +883,10 @@ export default function Home() {
     : defaultBusinessSettings.whatsapp_message;
   const instagramUrl = getInstagramUrl(businessSettings.instagram_url);
   const address = normalizeOptionalText(businessSettings.address);
+
+  function createCustomerAppointmentWhatsAppLink() {
+    return `https://wa.me/${whatsappPhone}`;
+  }
 
   const secondaryLinks = [
     ...(hasText(businessSettings.whatsapp_phone) && hasText(whatsappPhone)
@@ -2324,10 +2350,11 @@ export default function Home() {
     const { data, error } = await supabase
       .from("appointments")
       .select(
-        "id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status, status"
+        "id, business_id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status, status, appointment_status"
       )
       .eq("customer_user_id", userId)
       .or("status.is.null,status.neq.cancelled")
+      .or("appointment_status.is.null,appointment_status.neq.cancelled")
       .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
@@ -2344,6 +2371,84 @@ export default function Home() {
     }
 
     setCustomerAppointments((data ?? []) as CustomerAppointment[]);
+  }
+
+  async function cancelCustomerAppointment(appointment: CustomerAppointment) {
+    if (!canCustomerCancelAppointment(appointment)) {
+      setCustomerAppointmentsMessage({
+        text: "Solo puedes cancelar una cita si faltan al menos 24 horas.",
+        type: "error"
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "¿Seguro que quieres cancelar esta cita? El hueco quedará libre para otras reservas."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancellingCustomerAppointmentId(appointment.id);
+    setCustomerAppointmentsMessage(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        setCustomerAppointmentsMessage({
+          text: "Debes iniciar sesión para cancelar la cita.",
+          type: "error"
+        });
+        return;
+      }
+
+      const response = await fetch("/api/bookings/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          appointmentId: appointment.id
+        })
+      });
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+        emailSent?: boolean;
+      } | null;
+
+      if (!response.ok) {
+        setCustomerAppointmentsMessage({
+          text: result?.error || "No se pudo cancelar la cita.",
+          type: "error"
+        });
+        return;
+      }
+
+      setCustomerAppointments((currentAppointments) =>
+        currentAppointments.filter(
+          (currentAppointment) => currentAppointment.id !== appointment.id
+        )
+      );
+      setCustomerAppointmentsMessage({
+        text:
+          result?.emailSent === false
+            ? "Cita cancelada correctamente. No se pudo enviar el aviso automático a la barbería."
+            : "Cita cancelada correctamente. Hemos avisado a la barbería.",
+        type: "success"
+      });
+    } catch (error) {
+      console.error("Error cancelling customer appointment:", error);
+      setCustomerAppointmentsMessage({
+        text: "No se pudo cancelar la cita. Inténtalo de nuevo.",
+        type: "error"
+      });
+    } finally {
+      setCancellingCustomerAppointmentId(null);
+    }
   }
 
   function updateField(field: keyof BookingForm, value: string) {
@@ -3565,7 +3670,13 @@ export default function Home() {
         <h2 className="text-lg font-bold text-white">Mis citas</h2>
 
         {customerAppointmentsMessage && (
-          <p className="mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100">
+          <p
+            className={
+              customerAppointmentsMessage.type === "success"
+                ? "mt-3 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-sm font-semibold text-barber-gold"
+                : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100"
+            }
+          >
             {customerAppointmentsMessage.text}
           </p>
         )}
@@ -3578,33 +3689,84 @@ export default function Home() {
           </p>
         ) : (
           <div className="mt-4 space-y-3">
-            {customerAppointments.map((appointment) => (
-              <article
-                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
-                key={appointment.id}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-white">
-                      {appointment.service}
-                    </p>
-                    <p className="mt-1 text-sm text-white/60">
-                      {appointment.appointment_date} ·{" "}
-                      {formatAppointmentTime(appointment.appointment_time)}
-                    </p>
+            {customerAppointments.map((appointment) => {
+              const canCancelAppointment =
+                canCustomerCancelAppointment(appointment);
+              const isCancellingAppointment =
+                cancellingCustomerAppointmentId === appointment.id;
+              const canContactByWhatsApp = hasText(whatsappPhone);
+
+              return (
+                <article
+                  className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                  key={appointment.id}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {appointment.service}
+                      </p>
+                      <p className="mt-1 text-sm text-white/60">
+                        {appointment.appointment_date} ·{" "}
+                        {formatAppointmentTime(appointment.appointment_time)}
+                      </p>
+                    </div>
+                    {appointment.reminder_status && (
+                      <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
+                        {appointment.reminder_status}
+                      </span>
+                    )}
                   </div>
-                  {appointment.reminder_status && (
-                    <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
-                      {appointment.reminder_status}
-                    </span>
+                  <div className="mt-3 space-y-1 text-sm text-white/65">
+                    <p>{appointment.customer_name}</p>
+                    <p>{appointment.customer_phone}</p>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <a
+                      aria-disabled={!canContactByWhatsApp}
+                      className={
+                        canContactByWhatsApp
+                          ? "block rounded-2xl border border-green-400/40 px-4 py-3 text-center text-sm font-bold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                          : "block cursor-not-allowed rounded-2xl border border-white/10 px-4 py-3 text-center text-sm font-bold text-white/35"
+                      }
+                      href={
+                        canContactByWhatsApp
+                          ? createCustomerAppointmentWhatsAppLink()
+                          : undefined
+                      }
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Contactar por WhatsApp
+                    </a>
+                    <button
+                      className="rounded-2xl border border-red-400/35 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={
+                        !canCancelAppointment || isCancellingAppointment
+                      }
+                      onClick={() => cancelCustomerAppointment(appointment)}
+                      type="button"
+                    >
+                      {isCancellingAppointment
+                        ? "Cancelando..."
+                        : canCancelAppointment
+                          ? "Cancelar cita"
+                          : "Cancelación cerrada"}
+                    </button>
+                  </div>
+                  {!canContactByWhatsApp && (
+                    <p className="mt-2 text-xs leading-5 text-white/45">
+                      Esta barbería todavía no tiene WhatsApp configurado.
+                    </p>
                   )}
-                </div>
-                <div className="mt-3 space-y-1 text-sm text-white/65">
-                  <p>{appointment.customer_name}</p>
-                  <p>{appointment.customer_phone}</p>
-                </div>
-              </article>
-            ))}
+                  {!canCancelAppointment && (
+                    <p className="mt-2 text-xs leading-5 text-white/45">
+                      No se puede cancelar online si faltan menos de 24 horas.
+                    </p>
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
       </div>

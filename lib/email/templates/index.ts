@@ -19,6 +19,11 @@ import {
   type BookingConfirmedProps
 } from "./BookingConfirmed";
 import {
+  CustomerBookingCancelled,
+  customerBookingCancelledText,
+  type CustomerBookingCancelledProps
+} from "./CustomerBookingCancelled";
+import {
   ResetPassword,
   resetPasswordText,
   type ResetPasswordProps
@@ -32,6 +37,7 @@ export type EmailTemplateProps = {
   ActivateOwner: ActivateOwnerProps;
   BookingConfirmed: BookingConfirmedProps;
   BookingCancelled: BookingCancelledProps;
+  CustomerBookingCancelled: CustomerBookingCancelledProps;
 };
 
 export type EmailTemplateName = keyof EmailTemplateProps;
@@ -60,5 +66,9 @@ export const emailTemplates = {
   BookingCancelled: {
     component: BookingCancelled,
     getText: bookingCancelledText
+  },
+  CustomerBookingCancelled: {
+    component: CustomerBookingCancelled,
+    getText: customerBookingCancelledText
   }
 } as const;

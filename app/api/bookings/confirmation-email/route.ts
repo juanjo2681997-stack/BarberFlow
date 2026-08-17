@@ -22,7 +22,6 @@ type Appointment = {
   service: string;
   appointment_date: string;
   appointment_time: string;
-  barber_name: string | null;
   duration_minutes: number | null;
 };
 
@@ -93,7 +92,7 @@ export async function POST(request: Request) {
     const { data: appointment, error: appointmentError } = await supabaseAdmin
       .from("appointments")
       .select(
-        "id, business_id, customer_user_id, customer_name, service, appointment_date, appointment_time, barber_name, duration_minutes"
+        "id, business_id, customer_user_id, customer_name, service, appointment_date, appointment_time, duration_minutes"
       )
       .eq("id", appointmentId)
       .eq("business_id", businessId)
@@ -166,7 +165,6 @@ export async function POST(request: Request) {
         service: cleanText(safeService?.name) || safeAppointment.service,
         date: safeAppointment.appointment_date,
         time: formatAppointmentTime(safeAppointment.appointment_time),
-        barberName: cleanText(safeAppointment.barber_name) || undefined,
         duration: durationMinutes ? `${durationMinutes} min` : undefined,
         price:
           typeof safeService?.price === "number"

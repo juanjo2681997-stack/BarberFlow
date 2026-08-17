@@ -8,7 +8,6 @@ export type BookingConfirmedProps = {
   service: string;
   date: string;
   time: string;
-  barberName?: string;
   duration?: string;
   price?: string;
   address?: string;
@@ -20,7 +19,6 @@ export function BookingConfirmed({
   service,
   date,
   time,
-  barberName,
   duration,
   price,
   address
@@ -37,7 +35,6 @@ export function BookingConfirmed({
           { label: "Servicio", value: service },
           { label: "Fecha", value: date },
           { label: "Hora", value: time },
-          ...(barberName ? [{ label: "Barbero", value: barberName }] : []),
           ...(duration ? [{ label: "Duracion", value: duration }] : []),
           ...(price ? [{ label: "Precio", value: price }] : []),
           ...(address ? [{ label: "Direccion", value: address }] : [])
@@ -56,13 +53,11 @@ export function bookingConfirmedText({
   service,
   date,
   time,
-  barberName,
   duration,
   price,
   address
 }: BookingConfirmedProps) {
   const optionalRows = [
-    barberName ? `Barbero: ${barberName}` : "",
     duration ? `Duracion: ${duration}` : "",
     price ? `Precio: ${price}` : "",
     address ? `Direccion: ${address}` : ""
