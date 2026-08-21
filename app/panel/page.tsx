@@ -175,6 +175,7 @@ type EmployeeBlockedTime = BlockedTime;
 type BusinessSettings = {
   id: string;
   business_name: string;
+  barber_name: string;
   slogan: string;
   whatsapp_phone: string;
   whatsapp_message: string;
@@ -274,6 +275,7 @@ function getPanelAuthErrorMessage(error: unknown) {
 const defaultBusinessSettings: BusinessSettings = {
   id: "",
   business_name: "Pablo's Barbershop",
+  barber_name: "Pablo",
   slogan: "Reserva tu corte en menos de 30 segundos",
   whatsapp_phone: "",
   whatsapp_message: "Hola, quiero reservar una cita.",
@@ -371,8 +373,6 @@ const initialEditAppointmentForm: EditAppointmentForm = {
   appointment_time: "",
   duration_minutes: 30
 };
-
-const mainBarber = "Pablo";
 
 const fullMonths = [
   "Enero",
@@ -1820,7 +1820,7 @@ export default function BarberPanel() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "id, business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, block_cancellation_message, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
+        "id, business_id, business_name, barber_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, block_cancellation_message, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .eq("business_id", businessId)
       .limit(1)
@@ -1837,6 +1837,10 @@ export default function BarberPanel() {
     const nextBusinessSettings = {
       id: data.id,
       business_name: data.business_name || defaultBusinessSettings.business_name,
+      barber_name:
+        typeof data.barber_name === "string" && data.barber_name.trim() !== ""
+          ? data.barber_name
+          : defaultBusinessSettings.barber_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
       whatsapp_phone:
         typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
@@ -1895,6 +1899,10 @@ export default function BarberPanel() {
     return {
       id: data.id,
       business_name: data.business_name || defaultBusinessSettings.business_name,
+      barber_name:
+        typeof data.barber_name === "string" && data.barber_name.trim() !== ""
+          ? data.barber_name
+          : defaultBusinessSettings.barber_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
       whatsapp_phone:
         typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
@@ -1987,6 +1995,7 @@ export default function BarberPanel() {
     const settingsToSave = {
       id: businessSettings.id,
       business_name: businessForm.business_name.trim(),
+      barber_name: businessForm.barber_name.trim(),
       slogan: businessForm.slogan.trim(),
       whatsapp_phone: businessForm.whatsapp_phone.trim(),
       whatsapp_message: businessForm.whatsapp_message.trim(),
@@ -2030,6 +2039,7 @@ export default function BarberPanel() {
     const bookingSettingsToSave = {
       id: businessSettings.id,
       business_name: businessForm.business_name,
+      barber_name: businessForm.barber_name,
       slogan: businessForm.slogan,
       whatsapp_phone: businessForm.whatsapp_phone,
       whatsapp_message: businessForm.whatsapp_message,
@@ -2082,6 +2092,7 @@ export default function BarberPanel() {
     const settingsToSave = {
       id: businessSettings.id,
       business_name: businessForm.business_name,
+      barber_name: businessForm.barber_name,
       slogan: businessForm.slogan,
       whatsapp_phone: businessForm.whatsapp_phone,
       whatsapp_message: businessForm.whatsapp_message,
@@ -3403,7 +3414,7 @@ export default function BarberPanel() {
       customer_phone: manualAppointment.customer_phone.trim(),
       customer_user_id: null,
       business_id: currentBusinessId,
-      barber_name: mainBarber,
+      barber_name: businessSettings.barber_name,
       duration_minutes: selectedService.duration_minutes,
       appointment_status: "pending",
       reminder_status: "pending"
@@ -6798,6 +6809,20 @@ export default function BarberPanel() {
                       }
                       type="text"
                       value={businessForm.business_name}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold text-white/60">
+                      Nombre del barbero
+                    </span>
+                    <input
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                      onChange={(event) =>
+                        updateBusinessSetting("barber_name", event.target.value)
+                      }
+                      type="text"
+                      value={businessForm.barber_name}
                     />
                   </label>
 

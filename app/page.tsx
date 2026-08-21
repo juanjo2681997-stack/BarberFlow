@@ -66,6 +66,7 @@ type BlockedTime = {
 
 type BusinessSettings = {
   business_name: string;
+  barber_name: string;
   slogan: string;
   whatsapp_phone: string;
   whatsapp_message: string;
@@ -185,8 +186,6 @@ type BusinessUserAssignment = {
 type AccessMode = "initial" | "customer" | "barber";
 type CustomerSection = "booking" | "profile";
 
-const mainBarber = "Pablo";
-
 const weekDays = [
   "Domingo",
   "Lunes",
@@ -231,6 +230,7 @@ const calendarWeekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 const defaultBusinessSettings: BusinessSettings = {
   business_name: "Pablo's Barbershop",
+  barber_name: "Pablo",
   slogan: "Reserva tu corte en menos de 30 segundos",
   whatsapp_phone: "",
   whatsapp_message: "Hola, quiero reservar una cita.",
@@ -1476,7 +1476,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("business_settings")
       .select(
-        "business_id, business_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
+        "business_id, business_name, barber_name, slogan, whatsapp_phone, whatsapp_message, instagram_url, address, main_button_text, booking_limit_enabled, booking_limit_value, booking_limit_mode, weekly_release_enabled, weekly_release_day, weekly_release_window_days"
       )
       .eq("business_id", businessId)
       .limit(1)
@@ -1494,6 +1494,9 @@ export default function Home() {
 
     const nextBusinessSettings = {
       business_name: data.business_name || defaultBusinessSettings.business_name,
+      barber_name:
+        normalizeOptionalText(data.barber_name) ||
+        defaultBusinessSettings.barber_name,
       slogan: data.slogan || defaultBusinessSettings.slogan,
       whatsapp_phone: normalizeOptionalText(data.whatsapp_phone),
       whatsapp_message:
@@ -2949,7 +2952,7 @@ export default function Home() {
       customer_phone: customerPhone,
       customer_user_id: customerUser.id,
       business_id: currentBusinessId,
-      barber_name: mainBarber,
+      barber_name: businessSettings.barber_name,
       duration_minutes: selectedService.duration_minutes
     });
 

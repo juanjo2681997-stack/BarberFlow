@@ -182,6 +182,7 @@ export async function PATCH(request: Request) {
     .from("business_settings")
     .update({
       business_name: String(body.business_name ?? "").trim(),
+      barber_name: String(body.barber_name ?? "").trim(),
       slogan: String(body.slogan ?? "").trim(),
       whatsapp_phone: String(body.whatsapp_phone ?? "").trim(),
       whatsapp_message: String(body.whatsapp_message ?? "").trim(),

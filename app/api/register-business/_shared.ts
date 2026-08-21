@@ -233,6 +233,7 @@ export async function createBusinessForOwner(params: {
     .insert({
       business_id: businessId,
       business_name: payload.business_name,
+      barber_name: payload.owner_name,
       slogan: "Reserva tu corte en menos de 30 segundos",
       whatsapp_phone: payload.whatsapp_phone,
       whatsapp_message: "Hola, quiero reservar una cita en {business_name}.",
