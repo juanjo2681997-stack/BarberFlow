@@ -3179,16 +3179,18 @@ export default function Home() {
   if (!isCustomerLoggedIn && accessMode === "initial") {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
-        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            FLOWBARBER
-          </p>
-          <h1 className="mt-6 text-3xl font-bold text-white">
-            {getBusinessDisplayName(currentBusiness)}
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-white/65">
-            Elige cómo quieres acceder.
-          </p>
+        <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[1.5rem] border border-white/10 bg-[#151515] p-6 shadow-2xl shadow-black/50">
+          <div className="border-b border-white/10 pb-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.32em] text-barber-gold">
+              flowbarber
+            </p>
+            <h1 className="mt-5 text-3xl font-bold text-white">
+              Acceso a tu cuenta
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-white/65">
+              Entra como cliente para reservar o como profesional para gestionar tu agenda.
+            </p>
+          </div>
           {businessLoadMessage && (
             <p className="mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100">
               {businessLoadMessage}
