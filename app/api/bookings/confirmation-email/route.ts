@@ -150,7 +150,7 @@ export async function POST(request: Request) {
     const businessName =
       cleanText(safeBusinessSettings?.business_name) ||
       cleanText(safeBusiness?.name) ||
-      "BarberFlow";
+      "flowbarber";
     const durationMinutes =
       safeAppointment.duration_minutes ?? safeService?.duration_minutes ?? null;
 

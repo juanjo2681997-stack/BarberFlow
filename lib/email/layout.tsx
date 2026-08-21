@@ -89,7 +89,7 @@ export function EmailLayout({ preview, title, children }: EmailLayoutProps) {
                             lineHeight: "32px"
                           }}
                         >
-                          BarberFlow
+                          flowbarber
                         </div>
                         <div
                           style={{
@@ -151,7 +151,7 @@ export function EmailLayout({ preview, title, children }: EmailLayoutProps) {
                             margin: 0
                           }}
                         >
-                          BarberFlow
+                          flowbarber
                           <br />
                           Correo enviado automáticamente. Si no esperabas este
                           mensaje, puedes ignorarlo.

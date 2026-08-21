@@ -1,4 +1,4 @@
-# BarberFlow
+# flowbarber
 
 Miniapp movil de demostracion para una barberia.
 

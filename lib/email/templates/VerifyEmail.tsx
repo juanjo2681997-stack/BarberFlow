@@ -10,12 +10,12 @@ export type VerifyEmailProps = {
 export function VerifyEmail({ name, verificationUrl }: VerifyEmailProps) {
   return (
     <EmailLayout
-      preview="Confirma tu correo en BarberFlow"
+      preview="Confirma tu correo en flowbarber"
       title="Confirma tu correo"
     >
       <EmailText>
         {name ? `Hola ${name}, ` : "Hola, "}
-        confirma tu correo electrónico para activar tu cuenta en BarberFlow.
+        confirma tu correo electrónico para activar tu cuenta en flowbarber.
       </EmailText>
       <EmailText>
         Pulsa el botón para verificar tu email y continuar usando la plataforma.
@@ -28,7 +28,7 @@ export function VerifyEmail({ name, verificationUrl }: VerifyEmailProps) {
 export function verifyEmailText({ name, verificationUrl }: VerifyEmailProps) {
   return `${name ? `Hola ${name},` : "Hola,"}
 
-Confirma tu correo electrónico para activar tu cuenta en BarberFlow.
+Confirma tu correo electrónico para activar tu cuenta en flowbarber.
 
 ${verificationUrl}`;
 }

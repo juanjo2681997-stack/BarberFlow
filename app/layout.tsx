@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BarberFlow",
+  title: "flowbarber",
   description: "Miniapp movil para Pablo's Barbershop"
 };
 

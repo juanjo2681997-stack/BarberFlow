@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -697,7 +697,7 @@ function isBusinessAvailableForBooking(business: Business) {
 }
 
 function getBusinessDisplayName(business: Business | null) {
-  return business?.business_name?.trim() || business?.name || "BarberFlow";
+  return business?.business_name?.trim() || business?.name || "flowbarber";
 }
 
 function getBusinessInitial(name: string) {
@@ -1946,7 +1946,7 @@ export default function Home() {
     if (result?.activation_required) {
       setCustomerVerificationNotice(null);
       setCustomerMessage({
-        text: "Te hemos enviado un correo para activar tu perfil de BarberFlow.",
+        text: "Te hemos enviado un correo para activar tu perfil de flowbarber.",
         type: "success"
       });
       return;
@@ -3143,7 +3143,7 @@ export default function Home() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Cargando tu sesión...
@@ -3158,7 +3158,7 @@ export default function Home() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             {businessLoadMessage || "Cargando barbería..."}
@@ -3181,7 +3181,7 @@ export default function Home() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             {getBusinessDisplayName(currentBusiness)}
@@ -3250,7 +3250,7 @@ export default function Home() {
             </button>
           )}
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Área barbero
@@ -3358,7 +3358,7 @@ export default function Home() {
             Volver
           </button>
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Accede para reservar
@@ -3586,7 +3586,7 @@ export default function Home() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Has iniciado sesión como barbero.
@@ -3957,7 +3957,7 @@ export default function Home() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-                BARBERFLOW
+                FLOWBARBER
               </p>
               <h1 className="mt-6 text-3xl font-bold text-white">
                 ¿Dónde quieres reservar?
@@ -4056,7 +4056,7 @@ export default function Home() {
         <div>
           <div className="mb-8 flex items-center justify-between">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-              BARBERFLOW
+              FLOWBARBER
             </p>
             {!isDirectBusinessEntry && (
               <button

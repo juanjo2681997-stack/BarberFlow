@@ -76,7 +76,7 @@ function ActivateProfileContent() {
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-          BARBERFLOW
+          FLOWBARBER
         </p>
         <h1 className="mt-6 text-3xl font-bold text-white">
           Activación de perfil
@@ -96,7 +96,7 @@ function ActivateProfileContent() {
             className="mt-4 block rounded-2xl border border-white/10 px-4 py-3 text-center text-xs font-semibold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
             href="/"
           >
-            Volver a BarberFlow
+            Volver a flowbarber
           </Link>
         )}
       </section>
@@ -111,7 +111,7 @@ export default function ActivateProfilePage() {
         <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
           <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-              BARBERFLOW
+              FLOWBARBER
             </p>
             <h1 className="mt-6 text-3xl font-bold text-white">
               Confirmando activación...

@@ -162,8 +162,8 @@ export async function sendProfileActivationEmail(params: {
     to: params.email,
     subject:
       params.profileType === "owner"
-        ? "Confirma tu perfil de barbería en BarberFlow"
-        : "Confirma tu perfil de cliente en BarberFlow",
+        ? "Confirma tu perfil de barbería en flowbarber"
+        : "Confirma tu perfil de cliente en flowbarber",
     template: params.profileType === "owner" ? "ActivateOwner" : "ActivateCustomer",
     props: {
       name: params.name,

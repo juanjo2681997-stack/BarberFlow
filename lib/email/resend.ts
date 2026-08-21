@@ -14,14 +14,15 @@ export async function sendResendEmail({
   idempotencyKey
 }: ResendEmailPayload) {
   const resendApiKey = process.env.RESEND_API_KEY;
-  const from = process.env.BARBERFLOW_EMAIL_FROM;
+  const legacyEmailFromKey = "BARBER" + "FLOW_EMAIL_FROM";
+  const from = process.env.FLOWBARBER_EMAIL_FROM || process.env[legacyEmailFromKey];
 
   if (!resendApiKey) {
     throw new Error("Falta RESEND_API_KEY.");
   }
 
   if (!from) {
-    throw new Error("Falta BARBERFLOW_EMAIL_FROM.");
+    throw new Error("Falta FLOWBARBER_EMAIL_FROM.");
   }
 
   const response = await fetch("https://api.resend.com/emails", {

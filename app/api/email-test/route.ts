@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   try {
     await sendEmail({
       to,
-      subject: "BarberFlow - email de prueba",
+      subject: "flowbarber - email de prueba",
       template: "VerifyEmail",
       props: {
         name: "Juanjo",

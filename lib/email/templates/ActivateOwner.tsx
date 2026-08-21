@@ -10,13 +10,13 @@ export type ActivateOwnerProps = {
 export function ActivateOwner({ name, activationUrl }: ActivateOwnerProps) {
   return (
     <EmailLayout
-      preview="Confirma tu perfil de barbería en BarberFlow"
+      preview="Confirma tu perfil de barbería en flowbarber"
       title="Activa tu perfil de barbería"
     >
       <EmailText>
         {name ? `Hola ${name}, ` : "Hola, "}
         has solicitado activar tu perfil de propietario de barbería dentro de
-        BarberFlow.
+        flowbarber.
       </EmailText>
       <EmailText>
         Pulsa el botón para confirmar esta activación y continuar con tu
@@ -30,7 +30,7 @@ export function ActivateOwner({ name, activationUrl }: ActivateOwnerProps) {
 export function activateOwnerText({ name, activationUrl }: ActivateOwnerProps) {
   return `${name ? `Hola ${name},` : "Hola,"}
 
-Has solicitado activar tu perfil de propietario de barbería dentro de BarberFlow.
+Has solicitado activar tu perfil de propietario de barbería dentro de flowbarber.
 
 ${activationUrl}`;
 }

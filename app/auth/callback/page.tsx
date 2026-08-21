@@ -77,7 +77,7 @@ function AuthCallbackContent() {
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-          BARBERFLOW
+          FLOWBARBER
         </p>
         <h1 className="mt-6 text-3xl font-bold text-white">
           {isEmailVerification ? "Correo verificado" : "Acceso de empleado"}
@@ -96,13 +96,13 @@ function AuthCallbackContent() {
           <div className="mt-6 space-y-4">
             <p className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold leading-6 text-barber-gold">
               Tu correo electrónico se ha verificado correctamente. Ya puedes
-              acceder a BarberFlow con tu email y contraseña.
+              acceder a flowbarber con tu email y contraseña.
             </p>
           </div>
         ) : (
           <div className="mt-6 space-y-4">
             <p className="text-sm leading-6 text-white/65">
-              Crea tu contraseña para acceder al panel de BarberFlow.
+              Crea tu contraseña para acceder al panel de flowbarber.
             </p>
 
             <label className="block">
@@ -169,7 +169,7 @@ export default function AuthCallbackPage() {
         <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
           <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-              BARBERFLOW
+              FLOWBARBER
             </p>
             <h1 className="mt-6 text-3xl font-bold text-white">
               Validando invitación...

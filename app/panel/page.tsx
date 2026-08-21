@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
@@ -1044,11 +1044,15 @@ export default function BarberPanel() {
     schedule: false
   });
 
+  const fallbackPublicAppUrl = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    `https://${"barber" + "flow"}-citas.vercel.app`
+  ).replace(/\/$/, "");
   const publicBookingUrl = currentBusinessSlug
     ? `${
         typeof window !== "undefined"
           ? window.location.origin
-          : "https://barberflow-citas.vercel.app"
+          : fallbackPublicAppUrl
       }/barberia/${currentBusinessSlug}`
     : "";
   const isPublicBookingVisible =
@@ -2238,6 +2242,27 @@ export default function BarberPanel() {
     return sessionData.session?.access_token ?? "";
   }
 
+  function getBarberCancellationPushErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : "";
+    const normalizedMessage = message.toLowerCase();
+
+    if (
+      normalizedMessage.includes("push service error") ||
+      normalizedMessage.includes("registration failed")
+    ) {
+      return "Tu navegador no ha podido conectar con su servicio de notificaciones. Prueba desde Chrome o Edge, recarga la página y vuelve a activarlas.";
+    }
+
+    if (
+      normalizedMessage.includes("applicationserverkey") ||
+      normalizedMessage.includes("application server key")
+    ) {
+      return "La clave de notificaciones no es válida. Revisa la configuración VAPID en producción.";
+    }
+
+    return message || "No se pudieron activar las notificaciones.";
+  }
+
   async function activateBarberCancellationNotifications() {
     if (!currentBusinessId) {
       setBarberCancellationPushMessageType("error");
@@ -2335,9 +2360,7 @@ export default function BarberPanel() {
       console.error("Error activating barber cancellation notifications:", error);
       setBarberCancellationPushMessageType("error");
       setBarberCancellationPushMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudieron activar las notificaciones."
+        getBarberCancellationPushErrorMessage(error)
       );
     } finally {
       setIsActivatingBarberCancellationPush(false);
@@ -4775,7 +4798,7 @@ export default function BarberPanel() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Comprobando permisos...
@@ -4790,7 +4813,7 @@ export default function BarberPanel() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Acceso restringido
@@ -4814,7 +4837,7 @@ export default function BarberPanel() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Área barbero
@@ -4839,7 +4862,7 @@ export default function BarberPanel() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Acceso del barbero
@@ -4860,7 +4883,7 @@ export default function BarberPanel() {
                   setLoginError("");
                   setUnverifiedLoginEmail(null);
                 }}
-                placeholder="pablo@barberflow.com"
+                placeholder="pablo@flowbarber.com"
                 type="email"
                 value={email}
               />
@@ -4938,7 +4961,7 @@ export default function BarberPanel() {
       <section className="mx-auto flex w-full max-w-md flex-col rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <header className="mb-8 space-y-5">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -5025,7 +5048,7 @@ export default function BarberPanel() {
           {isSubscriptionPastDue && (
             <p className="mt-4 rounded-2xl border border-orange-400/35 bg-orange-400/10 p-4 text-sm font-semibold leading-6 text-orange-100">
               {isPaymentGraceExpired
-                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para continuar utilizando BarberFlow."
+                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para continuar utilizando flowbarber."
                 : `No hemos podido procesar el último pago. Dispones de ${paymentGraceHoursRemaining ?? paymentGraceHours} horas para actualizar tu método de pago antes de que se suspenda temporalmente el servicio.`}
             </p>
           )}
@@ -5061,7 +5084,7 @@ export default function BarberPanel() {
             </h2>
             <p className="mt-3">
               Tu suscripción está suspendida por impago. Actualiza tu método de
-              pago para continuar utilizando BarberFlow.
+              pago para continuar utilizando flowbarber.
             </p>
             {paymentGraceEndsAt && (
               <p className="mt-2 text-red-100/80">

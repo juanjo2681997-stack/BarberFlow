@@ -126,7 +126,7 @@ export async function POST(request: Request) {
         ok: true,
         activation_required: true,
         email,
-        message: "Te hemos enviado un correo para activar tu perfil de BarberFlow."
+        message: "Te hemos enviado un correo para activar tu perfil de flowbarber."
       });
     }
 
@@ -161,7 +161,7 @@ export async function POST(request: Request) {
 
     await sendEmail({
       to: email,
-      subject: "Confirma tu correo en BarberFlow",
+      subject: "Confirma tu correo en flowbarber",
       template: "VerifyEmail",
       props: {
         name: fullName,

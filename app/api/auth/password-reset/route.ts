@@ -29,7 +29,7 @@ function getFriendlyEmailError(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
 
   if (message.includes("domain is not verified")) {
-    return "El dominio de email de BarberFlow todavía no está verificado en Resend.";
+    return "El dominio de email de flowbarber todavía no está verificado en Resend.";
   }
 
   if (message.includes("invalid api key") || message.includes("api key")) {

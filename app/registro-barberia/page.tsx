@@ -102,7 +102,7 @@ export default function RegisterBusinessPage() {
         setForm(initialForm);
         setMessage(
           data.message ||
-            "Te hemos enviado un correo para activar tu perfil de BarberFlow."
+            "Te hemos enviado un correo para activar tu perfil de flowbarber."
         );
         setIsError(false);
         return;
@@ -135,7 +135,7 @@ export default function RegisterBusinessPage() {
         </Link>
 
         <p className="mt-6 text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-          BARBERFLOW
+          FLOWBARBER
         </p>
         <h1 className="mt-5 text-3xl font-bold leading-tight text-white">
           Registrar mi barbería

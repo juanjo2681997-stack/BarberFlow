@@ -149,13 +149,13 @@ function UpdatePasswordContent() {
     <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-          BARBERFLOW
+          FLOWBARBER
         </p>
         <h1 className="mt-6 text-3xl font-bold text-white">
           Nueva contraseña
         </h1>
         <p className="mt-3 text-sm leading-6 text-white/65">
-          Crea una contraseña nueva para volver a entrar en BarberFlow.
+          Crea una contraseña nueva para volver a entrar en flowbarber.
         </p>
 
         {isPreparingSession ? (
@@ -256,7 +256,7 @@ export default function UpdatePasswordPage() {
         <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
           <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 text-center shadow-2xl shadow-black/50">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-              BARBERFLOW
+              FLOWBARBER
             </p>
             <h1 className="mt-6 text-3xl font-bold text-white">
               Validando enlace...

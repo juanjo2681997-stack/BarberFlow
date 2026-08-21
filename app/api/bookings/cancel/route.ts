@@ -398,7 +398,7 @@ export async function POST(request: Request) {
     const businessName =
       cleanText(safeBusinessSettings?.business_name) ||
       cleanText(safeBusiness?.name) ||
-      "BarberFlow";
+      "flowbarber";
     const ownerName =
       cleanText(employeeOwnerContacts[0]?.display_name) || businessName;
     const appointmentForEmail = cancelledAppointment as Appointment;

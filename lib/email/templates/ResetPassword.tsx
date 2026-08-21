@@ -10,7 +10,7 @@ export type ResetPasswordProps = {
 export function ResetPassword({ name, resetUrl }: ResetPasswordProps) {
   return (
     <EmailLayout
-      preview="Restablece tu contraseña de BarberFlow"
+      preview="Restablece tu contraseña de flowbarber"
       title="Restablece tu contraseña"
     >
       <EmailText>

@@ -472,7 +472,7 @@ export default function SuperadminPage() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Panel de administración
@@ -501,7 +501,7 @@ export default function SuperadminPage() {
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="admin@barberflow.com"
+                placeholder="admin@flowbarber.com"
                 type="email"
                 value={email}
               />
@@ -539,7 +539,7 @@ export default function SuperadminPage() {
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50">
           <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-            BARBERFLOW
+            FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
             Panel de administración
@@ -566,7 +566,7 @@ export default function SuperadminPage() {
         <header className="flex flex-col gap-4 rounded-[2rem] border border-white/10 bg-gradient-to-b from-barber-gray to-barber-black p-6 shadow-2xl shadow-black/50 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-barber-gold">
-              BARBERFLOW
+              FLOWBARBER
             </p>
             <h1 className="mt-3 text-3xl font-bold text-white">
               Panel de administración
