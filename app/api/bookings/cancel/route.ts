@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import webpush from "web-push";
 import { sendEmail } from "@/lib/email/sendEmail";
 import {
   cleanText,
@@ -9,6 +10,8 @@ export const runtime = "nodejs";
 
 const cancellationLimitHours = 24;
 const madridTimeZone = "Europe/Madrid";
+const barberCancellationAppointmentPrefix = "barber-cancellations:";
+const barberCancellationCustomerPhone = "barber";
 
 type CancelBookingBody = {
   appointmentId?: string;
@@ -44,6 +47,16 @@ type OwnerContact = {
 type EmployeeOwnerContact = {
   display_name: string | null;
   email: string | null;
+};
+
+type PushSubscriptionRow = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+type SupabaseAdminClient = {
+  from: (table: string) => any;
 };
 
 function formatAppointmentTime(value: string) {
@@ -126,6 +139,118 @@ function getUniqueEmails(values: unknown[]) {
         .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     )
   );
+}
+
+function getBarberCancellationAppointmentId(businessId: string) {
+  return `${barberCancellationAppointmentPrefix}${businessId}`;
+}
+
+async function sendBarberCancellationPush(params: {
+  supabaseAdmin: SupabaseAdminClient;
+  appointment: Appointment;
+  businessName: string;
+}) {
+  const { supabaseAdmin, appointment, businessName } = params;
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+  const vapidSubject = process.env.VAPID_SUBJECT;
+
+  if (!vapidPublicKey || !vapidPrivateKey || !vapidSubject) {
+    console.warn("Customer cancellation push skipped: missing VAPID config.", {
+      appointmentId: appointment.id,
+      businessId: appointment.business_id
+    });
+
+    return false;
+  }
+
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+
+  const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
+    .from("push_subscriptions")
+    .select("endpoint, p256dh, auth")
+    .eq("business_id", appointment.business_id)
+    .eq(
+      "appointment_id",
+      getBarberCancellationAppointmentId(appointment.business_id)
+    )
+    .eq("customer_phone", barberCancellationCustomerPhone);
+
+  if (subscriptionsError) {
+    console.error("Error loading barber cancellation push subscriptions:", {
+      appointmentId: appointment.id,
+      businessId: appointment.business_id,
+      message: subscriptionsError.message
+    });
+
+    return false;
+  }
+
+  const pushSubscriptions = (subscriptions ?? []) as PushSubscriptionRow[];
+
+  if (pushSubscriptions.length === 0) {
+    console.info("Customer cancellation push skipped: no barber subscription.", {
+      appointmentId: appointment.id,
+      businessId: appointment.business_id
+    });
+
+    return false;
+  }
+
+  let sentCount = 0;
+
+  for (const subscription of pushSubscriptions) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.p256dh,
+            auth: subscription.auth
+          }
+        },
+        JSON.stringify({
+          title: "Reserva cancelada",
+          body: "Revisa tu correo, tienes una reserva cancelada.",
+          url: "/panel",
+          businessName
+        })
+      );
+
+      sentCount += 1;
+    } catch (pushError) {
+      const statusCode =
+        typeof pushError === "object" &&
+        pushError !== null &&
+        "statusCode" in pushError
+          ? Number((pushError as { statusCode?: unknown }).statusCode)
+          : null;
+
+      console.error("Error sending customer cancellation push:", {
+        appointmentId: appointment.id,
+        businessId: appointment.business_id,
+        statusCode,
+        message: getSafeErrorMessage(pushError)
+      });
+
+      if (statusCode === 404 || statusCode === 410) {
+        await supabaseAdmin
+          .from("push_subscriptions")
+          .delete()
+          .eq("business_id", appointment.business_id)
+          .eq("endpoint", subscription.endpoint);
+      }
+    }
+  }
+
+  console.info("Customer cancellation push processed:", {
+    appointmentId: appointment.id,
+    businessId: appointment.business_id,
+    subscriptionCount: pushSubscriptions.length,
+    sentCount
+  });
+
+  return sentCount > 0;
 }
 
 export async function POST(request: Request) {
@@ -277,52 +402,62 @@ export async function POST(request: Request) {
     const ownerName =
       cleanText(employeeOwnerContacts[0]?.display_name) || businessName;
     const appointmentForEmail = cancelledAppointment as Appointment;
+    let emailSent = false;
 
     if (ownerEmails.length === 0) {
       console.warn("Customer cancellation email skipped: missing owner email.", {
         appointmentId: safeAppointment.id,
         businessId: safeAppointment.business_id
       });
+    } else {
+      try {
+        await sendEmail({
+          to: ownerEmails,
+          subject: `Reserva cancelada por ${appointmentForEmail.customer_name}`,
+          template: "CustomerBookingCancelled",
+          idempotencyKey: `customer-booking-cancelled/${safeAppointment.id}`,
+          props: {
+            barberName: ownerName,
+            customerName: appointmentForEmail.customer_name,
+            customerPhone:
+              cleanText(appointmentForEmail.customer_phone) || undefined,
+            businessName,
+            service: appointmentForEmail.service,
+            date: appointmentForEmail.appointment_date,
+            time: formatAppointmentTime(appointmentForEmail.appointment_time),
+            duration: appointmentForEmail.duration_minutes
+              ? `${appointmentForEmail.duration_minutes} min`
+              : undefined
+          }
+        });
 
-      return NextResponse.json({ ok: true, emailSent: false });
+        emailSent = true;
+
+        console.info("Customer cancellation email sent:", {
+          appointmentId: safeAppointment.id,
+          businessId: safeAppointment.business_id,
+          recipientCount: ownerEmails.length
+        });
+      } catch (emailError) {
+        console.error("Error sending customer cancellation email:", {
+          appointmentId: safeAppointment.id,
+          businessId: safeAppointment.business_id,
+          message: getSafeErrorMessage(emailError)
+        });
+      }
     }
 
-    try {
-      await sendEmail({
-        to: ownerEmails,
-        subject: `Reserva cancelada por ${appointmentForEmail.customer_name}`,
-        template: "CustomerBookingCancelled",
-        idempotencyKey: `customer-booking-cancelled/${safeAppointment.id}`,
-        props: {
-          barberName: ownerName,
-          customerName: appointmentForEmail.customer_name,
-          customerPhone: cleanText(appointmentForEmail.customer_phone) || undefined,
-          businessName,
-          service: appointmentForEmail.service,
-          date: appointmentForEmail.appointment_date,
-          time: formatAppointmentTime(appointmentForEmail.appointment_time),
-          duration: appointmentForEmail.duration_minutes
-            ? `${appointmentForEmail.duration_minutes} min`
-            : undefined
-        }
-      });
+    const pushSent = await sendBarberCancellationPush({
+      supabaseAdmin,
+      appointment: appointmentForEmail,
+      businessName
+    });
 
-      console.info("Customer cancellation email sent:", {
-        appointmentId: safeAppointment.id,
-        businessId: safeAppointment.business_id,
-        recipientCount: ownerEmails.length
-      });
-
-      return NextResponse.json({ ok: true, emailSent: true });
-    } catch (emailError) {
-      console.error("Error sending customer cancellation email:", {
-        appointmentId: safeAppointment.id,
-        businessId: safeAppointment.business_id,
-        message: getSafeErrorMessage(emailError)
-      });
-
-      return NextResponse.json({ ok: true, emailSent: false });
-    }
+    return NextResponse.json({
+      ok: true,
+      emailSent,
+      pushSent
+    });
   } catch (error) {
     console.error("Unexpected customer cancellation error:", {
       message: getSafeErrorMessage(error)

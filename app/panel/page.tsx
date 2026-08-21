@@ -795,12 +795,68 @@ function workingHourHasChanged(
   );
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+
+  return outputArray;
+}
+
+function waitForActiveServiceWorker(registration: ServiceWorkerRegistration) {
+  if (registration.active) {
+    return Promise.resolve(registration);
+  }
+
+  const worker = registration.installing || registration.waiting;
+
+  if (!worker) {
+    return Promise.reject(
+      new Error(
+        "No se pudo activar el servicio de notificaciones. Recarga la página e inténtalo de nuevo."
+      )
+    );
+  }
+
+  return new Promise<ServiceWorkerRegistration>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(
+        new Error(
+          "No se pudo activar el servicio de notificaciones. Recarga la página e inténtalo de nuevo."
+        )
+      );
+    }, 8000);
+
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "activated" && registration.active) {
+        window.clearTimeout(timeoutId);
+        resolve(registration);
+      }
+    });
+  });
+}
+
 export default function BarberPanel() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [pendingCancellationNotifications, setPendingCancellationNotifications] =
     useState<BlockCancelledAppointment[]>([]);
+  const [barberCancellationPushMessage, setBarberCancellationPushMessage] =
+    useState("");
+  const [
+    barberCancellationPushMessageType,
+    setBarberCancellationPushMessageType
+  ] = useState<"success" | "error">("success");
+  const [
+    isActivatingBarberCancellationPush,
+    setIsActivatingBarberCancellationPush
+  ] = useState(false);
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -2180,6 +2236,112 @@ export default function BarberPanel() {
     const { data: sessionData } = await supabase.auth.getSession();
 
     return sessionData.session?.access_token ?? "";
+  }
+
+  async function activateBarberCancellationNotifications() {
+    if (!currentBusinessId) {
+      setBarberCancellationPushMessageType("error");
+      setBarberCancellationPushMessage("No se pudo cargar la barbería.");
+      return;
+    }
+
+    if (
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window) ||
+      !("Notification" in window)
+    ) {
+      setBarberCancellationPushMessageType("error");
+      setBarberCancellationPushMessage(
+        "Este navegador no permite notificaciones."
+      );
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setBarberCancellationPushMessageType("error");
+      setBarberCancellationPushMessage(
+        "Las notificaciones necesitan una conexión segura."
+      );
+      return;
+    }
+
+    const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+    if (!publicKey) {
+      setBarberCancellationPushMessageType("error");
+      setBarberCancellationPushMessage(
+        "Falta la clave pública de notificaciones."
+      );
+      return;
+    }
+
+    setIsActivatingBarberCancellationPush(true);
+    setBarberCancellationPushMessage("");
+
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission !== "granted") {
+        setBarberCancellationPushMessageType("error");
+        setBarberCancellationPushMessage(
+          "No se activaron porque no aceptaste las notificaciones."
+        );
+        return;
+      }
+
+      await navigator.serviceWorker.register("/sw.js", {
+        scope: "/"
+      });
+
+      const readyRegistration = await waitForActiveServiceWorker(
+        await navigator.serviceWorker.ready
+      );
+      const currentSubscription =
+        await readyRegistration.pushManager.getSubscription();
+      const subscription =
+        currentSubscription ??
+        (await readyRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        }));
+      const accessToken = await getEmployeeAccessToken();
+
+      if (!accessToken) {
+        throw new Error("No se pudo comprobar tu sesión.");
+      }
+
+      const response = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          subscription_type: "barber_cancellations",
+          business_id: currentBusinessId,
+          subscription,
+          user_agent: navigator.userAgent
+        })
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "No se pudieron activar.");
+      }
+
+      setBarberCancellationPushMessageType("success");
+      setBarberCancellationPushMessage("Notificaciones de cancelación activadas.");
+    } catch (error) {
+      console.error("Error activating barber cancellation notifications:", error);
+      setBarberCancellationPushMessageType("error");
+      setBarberCancellationPushMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron activar las notificaciones."
+      );
+    } finally {
+      setIsActivatingBarberCancellationPush(false);
+    }
   }
 
   function updateEmployeeForm<K extends keyof EmployeeForm>(
@@ -7340,6 +7502,39 @@ export default function BarberPanel() {
             <h3 className="text-lg font-bold text-white">
               Cancelaciones pendientes de avisar
             </h3>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">
+                    Avisos de cancelación
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-white/60">
+                    Recibirás un aviso cuando un cliente cancele una cita.
+                  </p>
+                </div>
+                <button
+                  className="rounded-2xl border border-barber-gold/40 px-4 py-3 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isActivatingBarberCancellationPush}
+                  onClick={activateBarberCancellationNotifications}
+                  type="button"
+                >
+                  {isActivatingBarberCancellationPush
+                    ? "Activando..."
+                    : "Activar notificaciones"}
+                </button>
+              </div>
+              {barberCancellationPushMessage && (
+                <p
+                  className={`mt-3 rounded-2xl border p-3 text-xs font-semibold ${
+                    barberCancellationPushMessageType === "success"
+                      ? "border-green-400/30 bg-green-400/10 text-green-100"
+                      : "border-red-400/30 bg-red-400/10 text-red-100"
+                  }`}
+                >
+                  {barberCancellationPushMessage}
+                </p>
+              )}
+            </div>
             {visiblePendingCancellationNotifications.length === 0 ? (
               <p className="mt-3 text-sm text-white/60">
                 No hay clientes pendientes de avisar por WhatsApp.
