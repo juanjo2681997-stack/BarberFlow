@@ -3335,22 +3335,32 @@ export default function BarberPanel() {
       return;
     }
 
-    setIsLoadingServices(true);
+    const accessToken = await getEmployeeAccessToken();
 
-    const { data, error } = await supabase
-      .from("services")
-      .select("id, name, price, duration_minutes, is_active")
-      .eq("business_id", businessId)
-      .order("created_at", { ascending: true });
-
-    setIsLoadingServices(false);
-
-    if (error) {
-      setServiceMessage("No se pudieron cargar los servicios.");
+    if (!accessToken) {
+      setServiceMessage("No se pudo comprobar tu sesion.");
       return;
     }
 
-    setServices((data ?? []) as Service[]);
+    setIsLoadingServices(true);
+
+    const response = await fetch("/api/services", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    setIsLoadingServices(false);
+
+    if (!response.ok) {
+      console.error("Error loading services:", result?.error ?? response.statusText);
+      setServiceMessage(result?.error ?? "No se pudieron cargar los servicios.");
+      return;
+    }
+
+    setServices((result?.services ?? []) as Service[]);
   }
 
   function updateManualAppointment(
@@ -4058,19 +4068,32 @@ export default function BarberPanel() {
       return;
     }
 
-    const { error } = await supabase
-      .from("services")
-      .update({
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setServiceMessage("No se pudo comprobar tu sesion.");
+      return;
+    }
+
+    const response = await fetch(`/api/services/${service.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
         name: service.name.trim(),
         price: Number(service.price),
         duration_minutes: Number(service.duration_minutes),
         is_active: service.is_active
       })
-      .eq("id", service.id)
-      .eq("business_id", currentBusinessId);
+    });
 
-    if (error) {
-      setServiceMessage("No se pudo guardar el servicio.");
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error saving service:", result?.error ?? response.statusText);
+      setServiceMessage(result?.error ?? "No se pudo guardar el servicio.");
       return;
     }
 
@@ -4093,16 +4116,32 @@ export default function BarberPanel() {
       return;
     }
 
-    const { error } = await supabase.from("services").insert({
-      name: newService.name.trim(),
-      price: Number(newService.price),
-      duration_minutes: Number(newService.duration_minutes),
-      is_active: true,
-      business_id: currentBusinessId
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setServiceMessage("No se pudo comprobar tu sesion.");
+      return;
+    }
+
+    const response = await fetch("/api/services", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        name: newService.name.trim(),
+        price: Number(newService.price),
+        duration_minutes: Number(newService.duration_minutes),
+        is_active: true
+      })
     });
 
-    if (error) {
-      setServiceMessage("No se pudo añadir el servicio.");
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error adding service:", result?.error ?? response.statusText);
+      setServiceMessage(result?.error ?? "No se pudo añadir el servicio.");
       return;
     }
 
@@ -4117,18 +4156,37 @@ export default function BarberPanel() {
       return;
     }
 
-    const { error } = await supabase
-      .from("services")
-      .delete()
-      .eq("id", id)
-      .eq("business_id", currentBusinessId);
+    const confirmed = window.confirm(
+      "Seguro que quieres desactivar este servicio? Dejara de aparecer para nuevas reservas."
+    );
 
-    if (error) {
-      setServiceMessage("No se pudo eliminar el servicio.");
+    if (!confirmed) {
       return;
     }
 
-    setServiceMessage("Servicio eliminado correctamente.");
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setServiceMessage("No se pudo comprobar tu sesion.");
+      return;
+    }
+
+    const response = await fetch(`/api/services/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error deactivating service:", result?.error ?? response.statusText);
+      setServiceMessage(result?.error ?? "No se pudo desactivar el servicio.");
+      return;
+    }
+
+    setServiceMessage("Servicio desactivado correctamente.");
     await loadServices();
   }
   async function addBlockedTime() {
@@ -7439,7 +7497,7 @@ export default function BarberPanel() {
                       onClick={() => deleteService(service.id)}
                       type="button"
                     >
-                      Eliminar
+                      Desactivar
                     </button>
                   </div>
                 </article>
