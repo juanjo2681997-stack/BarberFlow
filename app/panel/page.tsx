@@ -3972,6 +3972,43 @@ export default function BarberPanel() {
       if (!confirmed) {
         return;
       }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        setAgendaMessageType("error");
+        setAgendaMessage("No se pudo comprobar tu sesiÃ³n.");
+        return;
+      }
+
+      const response = await fetch(`/api/appointments/${id}/cancel`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      const result = (await response.json().catch(() => null)) as
+        | { error?: string; emailStatus?: "sent" | "skipped" | "failed" }
+        | null;
+
+      if (!response.ok) {
+        setAgendaMessageType("error");
+        setAgendaMessage(result?.error || "No se pudo cancelar la cita.");
+        return;
+      }
+
+      setAgendaMessageType(result?.emailStatus === "failed" ? "error" : "success");
+      setAgendaMessage(
+        result?.emailStatus === "failed"
+          ? "Cita cancelada, pero no se pudo enviar el email al cliente."
+          : result?.emailStatus === "sent"
+            ? "Cita cancelada correctamente. Email enviado al cliente."
+            : "Cita cancelada correctamente."
+      );
+      await loadAppointments();
+      await loadAppointmentHistory();
+      return;
     }
 
     const { error } = await supabase
@@ -3991,11 +4028,7 @@ export default function BarberPanel() {
     }
 
     setAgendaMessageType("success");
-    setAgendaMessage(
-      nextStatus === "cancelled"
-        ? "Cita cancelada correctamente."
-        : "Estado de cita actualizado."
-    );
+    setAgendaMessage("Estado de cita actualizado.");
     await loadAppointments();
     await loadAppointmentHistory();
   }
