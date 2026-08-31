@@ -724,6 +724,13 @@ function normalizeOptionalText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeSearchText(value: unknown) {
+  return normalizeOptionalText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function isEmailNotConfirmedError(error: unknown) {
   if (!error || typeof error !== "object") {
     return false;
@@ -798,6 +805,7 @@ export default function Home() {
   const [currentBusinessId, setCurrentBusinessId] = useState<string | null>(null);
   const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [businessSearch, setBusinessSearch] = useState("");
   const [services, setServices] = useState<Service[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
     defaultBusinessSettings
@@ -993,6 +1001,21 @@ export default function Home() {
       ? 0
       : reviews.reduce((total, review) => total + Number(review.rating), 0) /
         reviewCount;
+  const businessSearchQuery = normalizeSearchText(businessSearch);
+  const filteredBusinesses =
+    businessSearchQuery === ""
+      ? businesses
+      : businesses.filter((business) => {
+          const searchableText = normalizeSearchText(
+            [
+              getBusinessDisplayName(business),
+              getBusinessSlogan(business),
+              getBusinessAddress(business)
+            ].join(" ")
+          );
+
+          return searchableText.includes(businessSearchQuery);
+        });
 
   useEffect(() => {
     currentBusinessIdRef.current = currentBusinessId;
@@ -1322,6 +1345,7 @@ export default function Home() {
   }
 
   function selectBusiness(business: Business) {
+    setBusinessSearch("");
     setCustomerSection("booking");
     prepareBusinessSelection(business);
   }
@@ -3985,6 +4009,21 @@ export default function Home() {
             </p>
           )}
 
+          {businesses.length > 0 && (
+            <label className="mt-6 block">
+              <span className="mb-2 block text-sm font-semibold text-white/70">
+                Buscar barberia
+              </span>
+              <input
+                className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
+                onChange={(event) => setBusinessSearch(event.target.value)}
+                placeholder="Nombre, zona o direccion"
+                type="search"
+                value={businessSearch}
+              />
+            </label>
+          )}
+
           <div className="mt-8 space-y-4">
             {isLoadingBusinesses ? (
               <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
@@ -3994,8 +4033,12 @@ export default function Home() {
               <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
                 No hay barberías disponibles.
               </p>
+            ) : filteredBusinesses.length === 0 ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
+                No hay barberias que coincidan con tu busqueda.
+              </p>
             ) : (
-              businesses.map((business) => {
+              filteredBusinesses.map((business) => {
                 const slogan = getBusinessSlogan(business);
                 const address = getBusinessAddress(business);
                 const displayName = getBusinessDisplayName(business);
