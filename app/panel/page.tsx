@@ -1273,6 +1273,7 @@ export default function BarberPanel() {
 
   async function loadPanelData(businessId: string) {
     await cleanupExpiredBlockedTimes(businessId);
+    await completePastAppointments();
     loadAppointments(businessId);
     loadAppointmentHistory(businessId);
     loadReviews(businessId);
@@ -1287,6 +1288,33 @@ export default function BarberPanel() {
       setCanManageEmployees(false);
     }
     loadBlockedTimes(businessId);
+  }
+
+  async function completePastAppointments() {
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/appointments/complete-past", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        console.error(
+          "Error completing past appointments:",
+          result?.error ?? response.statusText
+        );
+      }
+    } catch (error) {
+      console.error("Error completing past appointments:", error);
+    }
   }
 
   function clearPanelData(keepAccessDenied = false) {
