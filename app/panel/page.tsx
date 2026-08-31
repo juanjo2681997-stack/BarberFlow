@@ -8077,13 +8077,24 @@ export default function BarberPanel() {
                     <input
                       className="box-border min-h-12 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
                       min="5"
-                      onChange={(event) =>
+                      max="240"
+                      onChange={(event) => {
+                        const nextSlotMinutes = Number(event.target.value);
+
+                        if (
+                          !Number.isInteger(nextSlotMinutes) ||
+                          nextSlotMinutes < 5
+                        ) {
+                          return;
+                        }
+
                         updateWorkingHour(
                           workingHour.id,
                           "slot_minutes",
-                          Number(event.target.value)
-                        )
-                      }
+                          nextSlotMinutes
+                        );
+                      }}
+                      step="5"
                       type="number"
                       value={workingHour.slot_minutes}
                     />

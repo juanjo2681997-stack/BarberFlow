@@ -35,7 +35,8 @@ function normalizeWorkingHourBody(body: unknown) {
   if (
     !Number.isInteger(slotMinutes) ||
     slotMinutes < 5 ||
-    slotMinutes > 240
+    slotMinutes > 240 ||
+    slotMinutes % 5 !== 0
   ) {
     return { error: "El intervalo entre huecos no es valido." };
   }
