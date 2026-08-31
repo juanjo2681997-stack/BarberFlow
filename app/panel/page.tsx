@@ -3309,25 +3309,33 @@ export default function BarberPanel() {
       return;
     }
 
-    setIsLoadingSchedule(true);
-    setScheduleMessage("");
+    const accessToken = await getEmployeeAccessToken();
 
-    const { data, error } = await supabase
-      .from("working_hours")
-      .select(
-        "id, day_of_week, day_name, is_working, morning_start, morning_end, afternoon_start, afternoon_end, slot_minutes"
-      )
-      .eq("business_id", businessId)
-      .order("day_of_week", { ascending: true });
-
-    setIsLoadingSchedule(false);
-
-    if (error) {
-      setScheduleMessage("No se pudo cargar el horario de trabajo.");
+    if (!accessToken) {
+      setScheduleMessage("No se pudo comprobar tu sesion.");
       return;
     }
 
-    setWorkingHours((data ?? []) as WorkingHour[]);
+    setIsLoadingSchedule(true);
+    setScheduleMessage("");
+
+    const response = await fetch("/api/working-hours", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    setIsLoadingSchedule(false);
+
+    if (!response.ok) {
+      console.error("Error loading working hours:", result?.error ?? response.statusText);
+      setScheduleMessage(result?.error ?? "No se pudo cargar el horario de trabajo.");
+      return;
+    }
+
+    setWorkingHours((result?.working_hours ?? []) as WorkingHour[]);
   }
 
   async function loadServices(businessId = currentBusinessId) {
@@ -4501,9 +4509,20 @@ export default function BarberPanel() {
       return false;
     }
 
-    const { error } = await supabase
-      .from("working_hours")
-      .update({
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setScheduleMessage("No se pudo comprobar tu sesion.");
+      return false;
+    }
+
+    const response = await fetch(`/api/working-hours/${workingHour.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
         is_working: workingHour.is_working,
         morning_start: emptyToNull(workingHour.morning_start),
         morning_end: emptyToNull(workingHour.morning_end),
@@ -4511,11 +4530,13 @@ export default function BarberPanel() {
         afternoon_end: emptyToNull(workingHour.afternoon_end),
         slot_minutes: workingHour.slot_minutes
       })
-      .eq("id", workingHour.id)
-      .eq("business_id", currentBusinessId);
+    });
 
-    if (error) {
-      setScheduleMessage("No se pudo actualizar el horario.");
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error updating working hour:", result?.error ?? response.statusText);
+      setScheduleMessage(result?.error ?? "No se pudo actualizar el horario.");
       return false;
     }
 
@@ -4527,21 +4548,27 @@ export default function BarberPanel() {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from("working_hours")
-      .select(
-        "id, day_of_week, day_name, is_working, morning_start, morning_end, afternoon_start, afternoon_end, slot_minutes"
-      )
-      .eq("id", id)
-      .eq("business_id", currentBusinessId)
-      .maybeSingle();
+    const accessToken = await getEmployeeAccessToken();
 
-    if (error || !data) {
-      console.error("Error loading original working hour:", error);
+    if (!accessToken) {
+      setScheduleMessage("No se pudo comprobar tu sesion.");
       return null;
     }
 
-    return data as WorkingHour;
+    const response = await fetch(`/api/working-hours/${id}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.working_hour) {
+      console.error("Error loading original working hour:", result?.error ?? response.statusText);
+      return null;
+    }
+
+    return result.working_hour as WorkingHour;
   }
 
   async function findAppointmentsAffectedByWorkingHour(workingHour: WorkingHour) {
