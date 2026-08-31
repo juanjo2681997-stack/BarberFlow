@@ -3253,23 +3253,32 @@ export default function BarberPanel() {
       return;
     }
 
-    setIsLoadingBlockedTimes(true);
+    const accessToken = await getEmployeeAccessToken();
 
-    const { data, error } = await supabase
-      .from("blocked_times")
-      .select("id, block_date, is_full_day, start_time, end_time, reason")
-      .eq("business_id", businessId)
-      .order("block_date", { ascending: true })
-      .order("start_time", { ascending: true });
-
-    setIsLoadingBlockedTimes(false);
-
-    if (error) {
-      setBlockMessage("No se pudieron cargar los bloqueos.");
+    if (!accessToken) {
+      setBlockMessage("No se pudo comprobar tu sesion.");
       return;
     }
 
-    setBlockedTimes((data ?? []) as BlockedTime[]);
+    setIsLoadingBlockedTimes(true);
+
+    const response = await fetch("/api/blocked-times", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    setIsLoadingBlockedTimes(false);
+
+    if (!response.ok) {
+      console.error("Error loading blocked times:", result?.error ?? response.statusText);
+      setBlockMessage(result?.error ?? "No se pudieron cargar los bloqueos.");
+      return;
+    }
+
+    setBlockedTimes((result?.blocked_times ?? []) as BlockedTime[]);
   }
 
   async function cleanupExpiredBlockedTimes(businessId = currentBusinessId) {
@@ -4225,17 +4234,33 @@ export default function BarberPanel() {
       }
     }
 
-    const { error } = await supabase.from("blocked_times").insert({
-      block_date: newBlockedTime.block_date,
-      is_full_day: newBlockedTime.is_full_day,
-      start_time: newBlockedTime.is_full_day ? null : newBlockedTime.start_time,
-      end_time: newBlockedTime.is_full_day ? null : newBlockedTime.end_time,
-      reason: emptyToNull(newBlockedTime.reason),
-      business_id: currentBusinessId
+    const accessToken = await getEmployeeAccessToken();
+
+    if (!accessToken) {
+      setBlockMessage("No se pudo comprobar tu sesion.");
+      return;
+    }
+
+    const response = await fetch("/api/blocked-times", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        block_date: newBlockedTime.block_date,
+        is_full_day: newBlockedTime.is_full_day,
+        start_time: newBlockedTime.is_full_day ? null : newBlockedTime.start_time,
+        end_time: newBlockedTime.is_full_day ? null : newBlockedTime.end_time,
+        reason: emptyToNull(newBlockedTime.reason)
+      })
     });
 
-    if (error) {
-      setBlockMessage("No se pudo añadir el bloqueo.");
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error adding blocked time:", result?.error ?? response.statusText);
+      setBlockMessage(result?.error ?? "No se pudo añadir el bloqueo.");
       return;
     }
 
@@ -4345,14 +4370,25 @@ export default function BarberPanel() {
       return;
     }
 
-    const { error } = await supabase
-      .from("blocked_times")
-      .delete()
-      .eq("id", id)
-      .eq("business_id", currentBusinessId);
+    const accessToken = await getEmployeeAccessToken();
 
-    if (error) {
-      setBlockMessage("No se pudo eliminar el bloqueo.");
+    if (!accessToken) {
+      setBlockMessage("No se pudo comprobar tu sesion.");
+      return;
+    }
+
+    const response = await fetch(`/api/blocked-times/${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.error("Error deleting blocked time:", result?.error ?? response.statusText);
+      setBlockMessage(result?.error ?? "No se pudo eliminar el bloqueo.");
       return;
     }
 
