@@ -4207,7 +4207,7 @@ export default function BarberPanel() {
     }
 
     const confirmed = window.confirm(
-      "Seguro que quieres desactivar este servicio? Dejara de aparecer para nuevas reservas."
+      "Seguro que quieres eliminar este servicio? Dejara de aparecer para nuevas reservas."
     );
 
     if (!confirmed) {
@@ -4231,12 +4231,12 @@ export default function BarberPanel() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      console.error("Error deactivating service:", result?.error ?? response.statusText);
-      setServiceMessage(result?.error ?? "No se pudo desactivar el servicio.");
+      console.error("Error deleting service:", result?.error ?? response.statusText);
+      setServiceMessage(result?.error ?? "No se pudo eliminar el servicio.");
       return;
     }
 
-    setServiceMessage("Servicio desactivado correctamente.");
+    setServiceMessage("Servicio eliminado correctamente.");
     await loadServices();
   }
   async function addBlockedTime() {
@@ -7593,7 +7593,7 @@ export default function BarberPanel() {
                       onClick={() => deleteService(service.id)}
                       type="button"
                     >
-                      Desactivar
+                      Eliminar
                     </button>
                   </div>
                 </article>
