@@ -231,7 +231,7 @@ const calendarWeekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const defaultBusinessSettings: BusinessSettings = {
   business_name: "Pablo's Barbershop",
   barber_name: "Pablo",
-  slogan: "Reserva tu corte en menos de 30 segundos",
+  slogan: "Reserva tu cita de forma rápida y sencilla",
   whatsapp_phone: "",
   whatsapp_message: "Hola, quiero reservar una cita.",
   instagram_url: "",
@@ -708,12 +708,14 @@ function getProfileInitial(nameOrEmail: string) {
   return nameOrEmail.trim().charAt(0).toUpperCase() || "C";
 }
 
-function getBusinessSlogan(business: Business) {
-  const slogan = business.slogan?.trim() || "";
-
+function normalizeBusinessSlogan(slogan: string) {
   return slogan === "Reserva tu corte en menos de 30 segundos"
-    ? "Servicios, horarios y citas disponibles"
+    ? "Reserva tu cita de forma rápida y sencilla"
     : slogan;
+}
+
+function getBusinessSlogan(business: Business) {
+  return normalizeBusinessSlogan(business.slogan?.trim() || "");
 }
 
 function getBusinessAddress(business: Business) {
@@ -4298,7 +4300,7 @@ export default function Home() {
               {businessSettings.business_name}
             </h1>
             <p className="mt-4 max-w-xs text-lg leading-7 text-white/72">
-              {businessSettings.slogan}
+              {normalizeBusinessSlogan(businessSettings.slogan)}
             </p>
           </div>
 
@@ -4344,7 +4346,7 @@ export default function Home() {
                 Horario
               </h2>
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm leading-6 text-white/75">
-                <p>Consulta los días disponibles en el formulario de reserva.</p>
+                <p>Consulta la disponibilidad al elegir día y hora.</p>
               </div>
             </section>
           </div>
@@ -4372,7 +4374,7 @@ export default function Home() {
           <div>
             <h2 className="text-2xl font-bold text-white">Reseñas</h2>
             <p className="mt-2 text-sm leading-6 text-white/65">
-              Opiniones publicadas por la barbería.
+              Opiniones publicadas por clientes.
             </p>
           </div>
           <div className="rounded-2xl border border-barber-gold/25 bg-barber-gold/10 px-4 py-3 text-center">
@@ -4803,7 +4805,7 @@ export default function Home() {
       >
         <h2 className="text-2xl font-bold text-white">Reserva tu cita</h2>
         <p className="mt-2 text-sm leading-6 text-white/65">
-          Elige servicio, día y hora para preparar tu próxima visita.
+          Elige servicio, día y hora para confirmar tu cita.
         </p>
 
         <form className="mt-6 space-y-4" noValidate onSubmit={confirmBooking}>
@@ -5015,7 +5017,7 @@ export default function Home() {
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/70">
               {isCustomerProfileComplete ? (
                 <p>
-                  Reservarás como{" "}
+                  Reservas como{" "}
                   <span className="font-semibold text-white">
                     {customerProfile.full_name}
                   </span>{" "}
