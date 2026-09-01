@@ -709,7 +709,11 @@ function getProfileInitial(nameOrEmail: string) {
 }
 
 function getBusinessSlogan(business: Business) {
-  return business.slogan?.trim() || "";
+  const slogan = business.slogan?.trim() || "";
+
+  return slogan === "Reserva tu corte en menos de 30 segundos"
+    ? "Servicios, horarios y citas disponibles"
+    : slogan;
 }
 
 function getBusinessAddress(business: Business) {
@@ -4107,7 +4111,7 @@ export default function Home() {
                 ¿Dónde quieres reservar?
               </h1>
               <p className="mt-3 text-sm leading-6 text-white/65">
-                Elige la barbería para ver sus servicios, horarios y citas
+                Elige tu barbería para ver servicios, horarios y citas
                 disponibles.
               </p>
             </div>
@@ -4117,7 +4121,7 @@ export default function Home() {
               onClick={logoutCustomer}
               type="button"
             >
-              Cerrar sesión
+              Salir
             </button>
           </div>
 
@@ -4244,7 +4248,7 @@ export default function Home() {
                       onClick={() => selectBusiness(business)}
                       type="button"
                     >
-                      Reservar aquí
+                      Reservar
                     </button>
                   </article>
                 );
