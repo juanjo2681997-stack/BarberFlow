@@ -722,6 +722,25 @@ function getBusinessAddress(business: Business) {
   return business.address?.trim() || "";
 }
 
+function getCustomerAppointmentStatusLabel(appointment: CustomerAppointment) {
+  const status =
+    appointment.appointment_status?.trim() ||
+    appointment.status?.trim() ||
+    appointment.reminder_status?.trim() ||
+    "";
+
+  const labels: Record<string, string> = {
+    cancelled: "Cancelada",
+    completed: "Realizada",
+    failed: "No realizada",
+    no_show: "No asistió",
+    pending: "Pendiente",
+    sent: "Avisada"
+  };
+
+  return labels[status] ?? status;
+}
+
 function hasText(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -896,6 +915,7 @@ export default function Home() {
     null
   );
   const currentBusinessIdRef = useRef<string | null>(null);
+  const customerAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const whatsappPhone = getWhatsAppPhone(businessSettings.whatsapp_phone);
   const whatsappMessage = hasText(businessSettings.whatsapp_message)
     ? normalizeOptionalText(businessSettings.whatsapp_message)
@@ -2250,6 +2270,7 @@ export default function Home() {
 
     if (!file) {
       setCustomerAvatarFile(null);
+      event.target.value = "";
       return;
     }
 
@@ -2324,6 +2345,9 @@ export default function Home() {
         avatar_url: result.avatar_url ?? ""
       }));
       setCustomerAvatarFile(null);
+      if (customerAvatarInputRef.current) {
+        customerAvatarInputRef.current.value = "";
+      }
       setCustomerAvatarMessage({
         text: "Foto de perfil subida correctamente.",
         type: "success"
@@ -2381,6 +2405,9 @@ export default function Home() {
         avatar_url: result.avatar_url ?? ""
       }));
       setCustomerAvatarFile(null);
+      if (customerAvatarInputRef.current) {
+        customerAvatarInputRef.current.value = "";
+      }
       setCustomerAvatarMessage({
         text: "Foto de perfil quitada correctamente.",
         type: "success"
@@ -3848,6 +3875,8 @@ export default function Home() {
               const isCancellingAppointment =
                 cancellingCustomerAppointmentId === appointment.id;
               const canContactByWhatsApp = hasText(whatsappPhone);
+              const appointmentStatusLabel =
+                getCustomerAppointmentStatusLabel(appointment);
 
               return (
                 <article
@@ -3864,9 +3893,9 @@ export default function Home() {
                         {formatAppointmentTime(appointment.appointment_time)}
                       </p>
                     </div>
-                    {appointment.reminder_status && (
+                    {appointmentStatusLabel && (
                       <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
-                        {appointment.reminder_status}
+                        {appointmentStatusLabel}
                       </span>
                     )}
                   </div>
@@ -3890,7 +3919,7 @@ export default function Home() {
                       rel="noreferrer"
                       target="_blank"
                     >
-                      Contactar por WhatsApp
+                      WhatsApp
                     </a>
                     <button
                       className="rounded-2xl border border-red-400/35 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
@@ -3904,7 +3933,7 @@ export default function Home() {
                         ? "Cancelando..."
                         : canCancelAppointment
                           ? "Cancelar cita"
-                          : "Cancelación cerrada"}
+                          : "Fuera de plazo"}
                     </button>
                   </div>
                   {!canContactByWhatsApp && (
@@ -3914,7 +3943,7 @@ export default function Home() {
                   )}
                   {!canCancelAppointment && (
                     <p className="mt-2 text-xs leading-5 text-white/45">
-                      No se puede cancelar online si faltan menos de 24 horas.
+                      Las citas no se pueden cancelar online con menos de 24 horas de antelación.
                     </p>
                   )}
                 </article>
@@ -3996,10 +4025,24 @@ export default function Home() {
                     <div className="w-full space-y-3">
                       <input
                         accept="image/jpeg,image/png,image/webp"
-                        className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white file:mr-4 file:rounded-full file:border-0 file:bg-barber-gold file:px-4 file:py-2 file:text-sm file:font-bold file:text-black"
+                        className="sr-only"
+                        id="customer-avatar-file"
                         onChange={handleCustomerAvatarFileChange}
+                        ref={customerAvatarInputRef}
                         type="file"
                       />
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <button
+                          className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                          onClick={() => customerAvatarInputRef.current?.click()}
+                          type="button"
+                        >
+                          Elegir foto
+                        </button>
+                        <p className="min-w-0 text-sm font-semibold text-white/70">
+                          {customerAvatarFile?.name ?? "Ninguna foto seleccionada"}
+                        </p>
+                      </div>
                       <p className="text-xs leading-5 text-white/45">
                         JPG, PNG o WebP. Tamaño máximo: 3 MB.
                       </p>
