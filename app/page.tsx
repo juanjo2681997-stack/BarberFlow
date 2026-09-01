@@ -3433,11 +3433,10 @@ export default function Home() {
             FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
-            Área barbero
+            Panel de barbería
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
-            Inicia sesión con la cuenta propietaria o registra tu barbería si
-            todavía no tienes acceso.
+            Inicia sesión para gestionar tu barbería o registra una nueva cuenta.
           </p>
 
           <Link
@@ -3484,7 +3483,7 @@ export default function Home() {
                   onChange={(event) =>
                     updateBarberLoginField("email", event.target.value)
                   }
-                  placeholder="barbero@email.com"
+                  placeholder="tu@email.com"
                   type="email"
                   value={barberLoginForm.email}
                 />
