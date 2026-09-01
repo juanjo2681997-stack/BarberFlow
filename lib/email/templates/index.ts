@@ -28,6 +28,11 @@ import {
   resetPasswordText,
   type ResetPasswordProps
 } from "./ResetPassword";
+import {
+  SubscriptionPaymentFailed,
+  subscriptionPaymentFailedText,
+  type SubscriptionPaymentFailedProps
+} from "./SubscriptionPaymentFailed";
 import { VerifyEmail, verifyEmailText, type VerifyEmailProps } from "./VerifyEmail";
 
 export type EmailTemplateProps = {
@@ -38,6 +43,7 @@ export type EmailTemplateProps = {
   BookingConfirmed: BookingConfirmedProps;
   BookingCancelled: BookingCancelledProps;
   CustomerBookingCancelled: CustomerBookingCancelledProps;
+  SubscriptionPaymentFailed: SubscriptionPaymentFailedProps;
 };
 
 export type EmailTemplateName = keyof EmailTemplateProps;
@@ -70,5 +76,9 @@ export const emailTemplates = {
   CustomerBookingCancelled: {
     component: CustomerBookingCancelled,
     getText: customerBookingCancelledText
+  },
+  SubscriptionPaymentFailed: {
+    component: SubscriptionPaymentFailed,
+    getText: subscriptionPaymentFailedText
   }
 } as const;
