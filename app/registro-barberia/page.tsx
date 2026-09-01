@@ -141,8 +141,8 @@ export default function RegisterBusinessPage() {
           Registrar mi barbería
         </h1>
         <p className="mt-3 text-sm leading-6 text-white/65">
-          Crea una cuenta demo para empezar a configurar servicios, horarios y
-          reservas desde tu propio panel.
+          Crea tu cuenta para configurar servicios, horarios y reservas desde tu
+          panel.
         </p>
 
         {message && (
@@ -224,7 +224,7 @@ export default function RegisterBusinessPage() {
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-white/70">
-                Nombre del propietario o responsable
+                Nombre del responsable
               </span>
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -265,7 +265,7 @@ export default function RegisterBusinessPage() {
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-white/70">
-                Teléfono WhatsApp opcional
+                WhatsApp de la barbería opcional
               </span>
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -300,7 +300,7 @@ export default function RegisterBusinessPage() {
                 onChange={(event) =>
                   updateField("instagram_url", event.target.value)
                 }
-                placeholder="https://instagram.com/tu_barberia"
+                placeholder="instagram.com/tu_barberia"
                 type="url"
                 value={form.instagram_url}
               />
