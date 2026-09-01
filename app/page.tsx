@@ -3333,7 +3333,7 @@ export default function Home() {
               Acceso a tu cuenta
             </h1>
             <p className="mt-3 text-sm leading-6 text-white/65">
-              Entra como cliente para reservar o como profesional para gestionar tu agenda.
+              Entra como cliente para reservar o como barbería para gestionar tu agenda.
             </p>
           </div>
           {businessLoadMessage && (
@@ -3353,7 +3353,7 @@ export default function Home() {
             >
               <span className="block text-xl font-bold text-white">Soy cliente</span>
               <span className="mt-2 block text-sm leading-6 text-white/65">
-                Reserva tu cita, consulta tus próximas reservas y recibe recordatorios.
+                Reserva tu cita, consulta tus próximas reservas y recibe avisos.
               </span>
             </button>
 
@@ -3365,7 +3365,7 @@ export default function Home() {
               }}
               type="button"
             >
-              <span className="block text-xl font-bold text-white">Soy barbero</span>
+              <span className="block text-xl font-bold text-white">Soy barbería</span>
               <span className="mt-2 block text-sm leading-6 text-white/65">
                 Accede al área de gestión de tu barbería.
               </span>
@@ -3376,7 +3376,7 @@ export default function Home() {
             className="mt-6 block text-center text-xs font-semibold text-white/45 transition hover:text-barber-gold"
             href="/registro-barberia"
           >
-            Registrar mi barbería
+            Registrar una barbería
           </Link>
         </section>
       </main>
@@ -3411,7 +3411,7 @@ export default function Home() {
             className="mt-4 inline-block text-xs font-semibold text-barber-gold transition hover:text-[#e7b65f]"
             href="/registro-barberia"
           >
-            Registrar mi barbería
+            Registrar una barbería
           </Link>
 
           {barberMessage && (
