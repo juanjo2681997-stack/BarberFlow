@@ -806,6 +806,11 @@ export default function Home() {
   const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [businessSearch, setBusinessSearch] = useState("");
+  const [favoriteBusinessIds, setFavoriteBusinessIds] = useState<string[]>([]);
+  const [favoriteBusinessMessage, setFavoriteBusinessMessage] =
+    useState<FormMessage | null>(null);
+  const [togglingFavoriteBusinessId, setTogglingFavoriteBusinessId] =
+    useState<string | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(
     defaultBusinessSettings
@@ -1001,11 +1006,26 @@ export default function Home() {
       ? 0
       : reviews.reduce((total, review) => total + Number(review.rating), 0) /
         reviewCount;
+  const favoriteBusinessIdSet = new Set(favoriteBusinessIds);
+  const sortedBusinesses = [...businesses].sort((firstBusiness, secondBusiness) => {
+    const firstIsFavorite = favoriteBusinessIdSet.has(firstBusiness.id);
+    const secondIsFavorite = favoriteBusinessIdSet.has(secondBusiness.id);
+
+    if (firstIsFavorite !== secondIsFavorite) {
+      return firstIsFavorite ? -1 : 1;
+    }
+
+    return getBusinessDisplayName(firstBusiness).localeCompare(
+      getBusinessDisplayName(secondBusiness),
+      "es",
+      { sensitivity: "base" }
+    );
+  });
   const businessSearchQuery = normalizeSearchText(businessSearch);
   const filteredBusinesses =
     businessSearchQuery === ""
-      ? businesses
-      : businesses.filter((business) => {
+      ? sortedBusinesses
+      : sortedBusinesses.filter((business) => {
           const searchableText = normalizeSearchText(
             [
               getBusinessDisplayName(business),
@@ -1043,6 +1063,7 @@ export default function Home() {
     }
 
     loadCustomerAppointments(customerUser.id);
+    loadFavoriteBusinesses();
   }, [customerUser?.id, isCustomerAdmin]);
 
   useEffect(() => {
@@ -1686,6 +1707,9 @@ export default function Home() {
     setIsUploadingCustomerAvatar(false);
     setCustomerAppointments([]);
     setCustomerAppointmentsMessage(null);
+    setFavoriteBusinessIds([]);
+    setFavoriteBusinessMessage(null);
+    setTogglingFavoriteBusinessId(null);
     setIsLoadingCustomerProfile(false);
     setIsLoadingCustomerAppointments(false);
   }
@@ -2398,6 +2422,103 @@ export default function Home() {
     }
 
     setCustomerAppointments((data ?? []) as CustomerAppointment[]);
+  }
+
+  async function loadFavoriteBusinesses() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setFavoriteBusinessIds([]);
+      return;
+    }
+
+    const response = await fetch("/api/customer-favorites", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    const result = (await response.json().catch(() => null)) as
+      | { favorites?: string[]; error?: string }
+      | null;
+
+    if (!response.ok) {
+      console.error(
+        "Error loading favorite businesses:",
+        result?.error ?? response.statusText
+      );
+      setFavoriteBusinessMessage({
+        text: result?.error ?? "No se pudieron cargar tus favoritas.",
+        type: "error"
+      });
+      return;
+    }
+
+    setFavoriteBusinessIds(result?.favorites ?? []);
+    setFavoriteBusinessMessage(null);
+  }
+
+  async function toggleFavoriteBusiness(businessId: string) {
+    const isFavorite = favoriteBusinessIdSet.has(businessId);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      setFavoriteBusinessMessage({
+        text: "Debes iniciar sesión para guardar favoritas.",
+        type: "error"
+      });
+      return;
+    }
+
+    setTogglingFavoriteBusinessId(businessId);
+    setFavoriteBusinessMessage(null);
+
+    try {
+      const response = await fetch("/api/customer-favorites", {
+        method: isFavorite ? "DELETE" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ businessId })
+      });
+      const result = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+
+      if (!response.ok) {
+        setFavoriteBusinessMessage({
+          text:
+            result?.error ??
+            (isFavorite
+              ? "No se pudo quitar la barbería favorita."
+              : "No se pudo guardar la barbería favorita."),
+          type: "error"
+        });
+        return;
+      }
+
+      setFavoriteBusinessIds((currentFavorites) =>
+        isFavorite
+          ? currentFavorites.filter((favoriteId) => favoriteId !== businessId)
+          : Array.from(new Set([...currentFavorites, businessId]))
+      );
+      setFavoriteBusinessMessage({
+        text: isFavorite
+          ? "Barbería quitada de favoritas."
+          : "Barbería guardada en favoritas.",
+        type: "success"
+      });
+    } catch (error) {
+      console.error("Error updating favorite business:", error);
+      setFavoriteBusinessMessage({
+        text: "No se pudo actualizar la lista de favoritas.",
+        type: "error"
+      });
+    } finally {
+      setTogglingFavoriteBusinessId(null);
+    }
   }
 
   async function cancelCustomerAppointment(appointment: CustomerAppointment) {
@@ -4009,15 +4130,27 @@ export default function Home() {
             </p>
           )}
 
+          {favoriteBusinessMessage && (
+            <p
+              className={
+                favoriteBusinessMessage.type === "success"
+                  ? "mt-5 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-4 text-sm font-semibold text-barber-gold"
+                  : "mt-5 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold text-red-100"
+              }
+            >
+              {favoriteBusinessMessage.text}
+            </p>
+          )}
+
           {businesses.length > 0 && (
             <label className="mt-6 block">
               <span className="mb-2 block text-sm font-semibold text-white/70">
-                Buscar barberia
+                Buscar barbería
               </span>
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
                 onChange={(event) => setBusinessSearch(event.target.value)}
-                placeholder="Nombre, zona o direccion"
+                placeholder="Nombre, zona o dirección"
                 type="search"
                 value={businessSearch}
               />
@@ -4035,13 +4168,16 @@ export default function Home() {
               </p>
             ) : filteredBusinesses.length === 0 ? (
               <p className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/60">
-                No hay barberias que coincidan con tu busqueda.
+                No hay barberías que coincidan con tu búsqueda.
               </p>
             ) : (
               filteredBusinesses.map((business) => {
                 const slogan = getBusinessSlogan(business);
                 const address = getBusinessAddress(business);
                 const displayName = getBusinessDisplayName(business);
+                const isFavorite = favoriteBusinessIdSet.has(business.id);
+                const isTogglingFavorite =
+                  togglingFavoriteBusinessId === business.id;
                 const profileImageUrl = normalizeOptionalText(
                   business.profile_image_url
                 );
@@ -4063,9 +4199,38 @@ export default function Home() {
                           {getBusinessInitial(displayName)}
                         </div>
                       )}
-                      <p className="text-xl font-bold text-white">
-                        {displayName}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xl font-bold text-white">
+                          {displayName}
+                        </p>
+                        {isFavorite && (
+                          <p className="mt-1 text-xs font-bold uppercase tracking-[0.18em] text-barber-gold">
+                            Favorita
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        aria-label={
+                          isFavorite
+                            ? `Quitar ${displayName} de favoritas`
+                            : `Guardar ${displayName} en favoritas`
+                        }
+                        className={
+                          isFavorite
+                            ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-barber-gold bg-barber-gold text-xl font-black text-black shadow-lg shadow-barber-gold/20 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                            : "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/25 text-xl font-black text-white/55 transition hover:border-barber-gold/60 hover:text-barber-gold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                        }
+                        disabled={isTogglingFavorite}
+                        onClick={() => toggleFavoriteBusiness(business.id)}
+                        title={
+                          isFavorite
+                            ? "Quitar de favoritas"
+                            : "Guardar en favoritas"
+                        }
+                        type="button"
+                      >
+                        {isFavorite ? "★" : "☆"}
+                      </button>
                     </div>
                     {slogan && (
                       <p className="mt-2 text-sm leading-6 text-white/60">
