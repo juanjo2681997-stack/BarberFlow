@@ -216,7 +216,7 @@ export default function RegisterBusinessPage() {
                 onChange={(event) =>
                   updateField("business_name", event.target.value)
                 }
-                placeholder="Barbería Pablo"
+                placeholder=""
                 type="text"
                 value={form.business_name}
               />
@@ -229,7 +229,7 @@ export default function RegisterBusinessPage() {
               <input
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
                 onChange={(event) => updateField("owner_name", event.target.value)}
-                placeholder="Nombre completo"
+                placeholder=""
                 type="text"
                 value={form.owner_name}
               />
