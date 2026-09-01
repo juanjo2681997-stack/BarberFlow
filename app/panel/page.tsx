@@ -276,7 +276,7 @@ const defaultBusinessSettings: BusinessSettings = {
   id: "",
   business_name: "Pablo's Barbershop",
   barber_name: "Pablo",
-  slogan: "Reserva tu corte en menos de 30 segundos",
+  slogan: "Reserva tu cita de forma rápida y sencilla",
   whatsapp_phone: "",
   whatsapp_message: "Hola, quiero reservar una cita.",
   instagram_url: "",
@@ -504,6 +504,22 @@ function formatReviewDate(dateValue: string) {
     month: "short",
     year: "numeric"
   });
+}
+
+function formatHistoryUpdateDate(dateValue: string) {
+  return new Date(dateValue).toLocaleString("es-ES", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "numeric",
+    year: "numeric"
+  });
+}
+
+function normalizeBusinessSlogan(slogan: string) {
+  return slogan === "Reserva tu corte en menos de 30 segundos"
+    ? "Reserva tu cita de forma rápida y sencilla"
+    : slogan;
 }
 
 function formatPlanDate(dateValue: string | null) {
@@ -909,6 +925,7 @@ export default function BarberPanel() {
     "success" | "error"
   >("success");
   const [isUploadingBusinessImage, setIsUploadingBusinessImage] = useState(false);
+  const businessImageInputRef = useRef<HTMLInputElement | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1769,6 +1786,7 @@ export default function BarberPanel() {
 
     if (!file) {
       setBusinessImageFile(null);
+      event.target.value = "";
       return;
     }
 
@@ -1834,6 +1852,9 @@ export default function BarberPanel() {
 
       setCurrentBusinessProfileImageUrl(result.profile_image_url ?? "");
       setBusinessImageFile(null);
+      if (businessImageInputRef.current) {
+        businessImageInputRef.current.value = "";
+      }
       setBusinessImageMessageType("success");
       setBusinessImageMessage("Imagen subida correctamente.");
     } catch (error) {
@@ -1882,6 +1903,9 @@ export default function BarberPanel() {
 
       setCurrentBusinessProfileImageUrl("");
       setBusinessImageFile(null);
+      if (businessImageInputRef.current) {
+        businessImageInputRef.current.value = "";
+      }
       setBusinessImageMessageType("success");
       setBusinessImageMessage("Imagen quitada correctamente.");
     } catch (error) {
@@ -1929,7 +1953,7 @@ export default function BarberPanel() {
         typeof data.barber_name === "string" && data.barber_name.trim() !== ""
           ? data.barber_name
           : defaultBusinessSettings.barber_name,
-      slogan: data.slogan || defaultBusinessSettings.slogan,
+      slogan: normalizeBusinessSlogan(data.slogan || defaultBusinessSettings.slogan),
       whatsapp_phone:
         typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
       whatsapp_message:
@@ -1991,7 +2015,7 @@ export default function BarberPanel() {
         typeof data.barber_name === "string" && data.barber_name.trim() !== ""
           ? data.barber_name
           : defaultBusinessSettings.barber_name,
-      slogan: data.slogan || defaultBusinessSettings.slogan,
+      slogan: normalizeBusinessSlogan(data.slogan || defaultBusinessSettings.slogan),
       whatsapp_phone:
         typeof data.whatsapp_phone === "string" ? data.whatsapp_phone : "",
       whatsapp_message:
@@ -5147,7 +5171,7 @@ export default function BarberPanel() {
           </p>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white">Panel del barbero</h1>
+              <h1 className="text-3xl font-bold text-white">Panel de barbería</h1>
             </div>
             <div className="flex sm:justify-end">
               <button
@@ -5216,7 +5240,7 @@ export default function BarberPanel() {
 
           {currentBusinessPlanStatus === "active" && (
             <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold leading-6 text-emerald-100">
-              <p>Plan Basic. Suscripción activa.</p>
+              <p>Suscripción activa.</p>
               {currentBusinessSubscriptionEndsAt && (
                 <p className="mt-2">
                   Tu suscripción se cancelará el{" "}
@@ -5715,7 +5739,7 @@ export default function BarberPanel() {
 
                                 <label className="mt-4 block">
                                   <span className="mb-2 block text-xs font-semibold text-white/60">
-                                    Intervalo entre huecos
+                                    Intervalo entre citas
                                   </span>
                                   <input
                                     className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
@@ -6299,12 +6323,18 @@ export default function BarberPanel() {
                       </div>
                     )}
                     <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-white/70">
-                      Hora seleccionada:{" "}
-                      <span className="text-barber-gold">
-                        {manualAppointment.appointment_time
-                          ? formatAppointmentTime(manualAppointment.appointment_time)
-                          : "ninguna"}
-                      </span>
+                      {manualAppointment.appointment_time ? (
+                        <>
+                          Hora seleccionada:{" "}
+                          <span className="text-barber-gold">
+                            {formatAppointmentTime(
+                              manualAppointment.appointment_time
+                            )}
+                          </span>
+                        </>
+                      ) : (
+                        "Selecciona una hora"
+                      )}
                     </p>
                   </div>
                 </div>
@@ -6689,7 +6719,7 @@ export default function BarberPanel() {
                               <p className="text-sm font-bold text-barber-gold">
                                 {appointment.appointment_status === "cancelled"
                                   ? `Cancelada: ${appointment.customer_name}`
-                                  : `Ocupado por ${appointment.customer_name}`}
+                                  : `Reservado por ${appointment.customer_name}`}
                               </p>
                               <p className="mt-1 text-xs text-white/50">
                                 {appointment.service}
@@ -6939,8 +6969,10 @@ export default function BarberPanel() {
                           {appointment.service}
                         </p>
                         <p>
-                          <span className="font-semibold text-white">Fecha:</span>{" "}
-                          {appointment.appointment_date} a las{" "}
+                          <span className="font-semibold text-white">
+                            Fecha y hora:
+                          </span>{" "}
+                          {appointment.appointment_date} ·{" "}
                           {formatAppointmentTime(appointment.appointment_time)}
                         </p>
                         <p>
@@ -6950,11 +6982,9 @@ export default function BarberPanel() {
                         {appointment.status_updated_at && (
                           <p>
                             <span className="font-semibold text-white">
-                              Estado actualizado:
+                              Actualizada:
                             </span>{" "}
-                            {new Date(
-                              appointment.status_updated_at
-                            ).toLocaleString("es-ES")}
+                            {formatHistoryUpdateDate(appointment.status_updated_at)}
                           </p>
                         )}
                       </div>
@@ -7098,8 +7128,8 @@ export default function BarberPanel() {
                   Imagen de la barbería
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white/65">
-                  Sube un logo o foto de perfil para mostrarlo en la página
-                  pública de reservas.
+                  Sube una imagen para mostrarla en la página pública de
+                  reservas.
                 </p>
 
                 <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -7120,10 +7150,23 @@ export default function BarberPanel() {
                   <div className="w-full space-y-3">
                     <input
                       accept="image/jpeg,image/png,image/webp"
-                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white file:mr-4 file:rounded-full file:border-0 file:bg-barber-gold file:px-4 file:py-2 file:text-sm file:font-bold file:text-black"
+                      className="sr-only"
                       onChange={handleBusinessImageFileChange}
+                      ref={businessImageInputRef}
                       type="file"
                     />
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <button
+                        className="rounded-2xl bg-barber-gold px-5 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98]"
+                        onClick={() => businessImageInputRef.current?.click()}
+                        type="button"
+                      >
+                        Elegir imagen
+                      </button>
+                      <p className="min-w-0 text-sm font-semibold text-white/70">
+                        {businessImageFile?.name ?? "Ninguna imagen seleccionada"}
+                      </p>
+                    </div>
                     <p className="text-xs leading-5 text-white/45">
                       Formatos permitidos: JPG, PNG o WebP. Tamaño máximo: 3 MB.
                     </p>
@@ -7181,7 +7224,7 @@ export default function BarberPanel() {
 
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
-                      Nombre del barbero
+                      Nombre visible del profesional
                     </span>
                     <input
                       className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -7209,7 +7252,7 @@ export default function BarberPanel() {
 
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
-                      Teléfono de WhatsApp
+                      WhatsApp de contacto
                     </span>
                     <input
                       className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -7236,7 +7279,7 @@ export default function BarberPanel() {
 
                   <label className="block">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
-                      URL de Instagram
+                      Instagram
                     </span>
                     <input
                       className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -7310,7 +7353,7 @@ export default function BarberPanel() {
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <label className="block">
                           <span className="mb-2 block text-xs font-semibold text-white/60">
-                            Número de antelación
+                            Antelación máxima
                           </span>
                           <input
                             className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -7416,7 +7459,7 @@ export default function BarberPanel() {
 
                         <label className="block">
                           <span className="mb-2 block text-xs font-semibold text-white/60">
-                            Días que se abren
+                            Días disponibles
                           </span>
                           <input
                             className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
@@ -7434,8 +7477,8 @@ export default function BarberPanel() {
                       </div>
 
                       <p className="rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-xs font-semibold leading-5 text-barber-gold">
-                        Ejemplo: si activas apertura semanal, eliges lunes y 7
-                        días, la agenda se abre cada lunes para esa semana.
+                        Ejemplo: si eliges lunes y 7 días, cada lunes se abrirá
+                        la agenda para la semana siguiente.
                       </p>
                     </div>
                   </div>
@@ -7941,7 +7984,7 @@ export default function BarberPanel() {
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <h3 className="text-lg font-bold text-white">
-              Mensaje de WhatsApp para citas canceladas por bloqueo
+              Mensaje para cancelaciones por bloqueo
             </h3>
             <p className="mt-2 text-sm leading-6 text-white/60">
               Este mensaje se usará para avisar a los clientes cuando una cita se
@@ -8169,7 +8212,7 @@ export default function BarberPanel() {
 
                   <div className="mx-auto mt-4 w-full max-w-[240px] sm:max-w-[280px] md:max-w-none">
                     <span className="mb-2 block text-xs font-semibold text-white/60">
-                      Intervalo entre huecos
+                      Intervalo entre citas
                     </span>
                     <input
                       className="box-border min-h-12 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-barber-gold"
@@ -8196,7 +8239,7 @@ export default function BarberPanel() {
                       value={workingHour.slot_minutes}
                     />
                     <p className="mt-2 text-xs leading-5 text-white/45">
-                      Ejemplo: 15 significa que los clientes podrán reservar a las 10:00, 10:15, 10:30...
+                      Ejemplo: 15 minutos permite reservar a las 10:00, 10:15, 10:30...
                     </p>
                   </div>
 
