@@ -3508,13 +3508,10 @@ export default function Home() {
             FLOWBARBER
           </p>
           <h1 className="mt-6 text-3xl font-bold text-white">
-            Accede para reservar
+            Reserva con tu cuenta
           </h1>
           <p className="mt-3 text-sm leading-6 text-white/65">
-            Crea tu cuenta para reservar cita y consultar tus próximas reservas.
-          </p>
-          <p className="mt-2 text-lg font-bold text-white">
-            {getBusinessDisplayName(currentBusiness)}
+            Inicia sesión o crea tu cuenta para reservar y consultar tus próximas citas.
           </p>
 
           {customerMessage && (
@@ -3698,14 +3695,14 @@ export default function Home() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-white/70">
-                  Repetir contraseña
+                  Confirmar contraseña
                 </span>
                 <input
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-white/35 focus:border-barber-gold"
                   onChange={(event) =>
                     updateCustomerAuthField("confirmPassword", event.target.value)
                   }
-                  placeholder="Repite la contraseña"
+                  placeholder="Confirma la contraseña"
                   type="password"
                   value={customerAuthForm.confirmPassword}
                 />
