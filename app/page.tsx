@@ -4856,7 +4856,11 @@ export default function Home() {
               Servicio
             </span>
             <select
-              className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-barber-gold"
+              className={
+                formData.service
+                  ? "w-full rounded-2xl border border-barber-gold bg-barber-gold px-4 py-3 font-semibold text-black shadow-lg shadow-barber-gold/20 outline-none transition focus:border-barber-gold focus:ring-2 focus:ring-barber-gold/35"
+                  : "w-full rounded-2xl border border-barber-gold/40 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-barber-gold focus:ring-2 focus:ring-barber-gold/25"
+              }
               onChange={(event) => updateField("service", event.target.value)}
               required
               value={formData.service}
