@@ -186,6 +186,12 @@ type BusinessUserAssignment = {
 type AccessMode = "initial" | "customer" | "barber";
 type CustomerSection = "booking" | "profile";
 
+const accountDeletionConfirmationText = "ELIMINAR CUENTA";
+
+function isValidAccountDeletionConfirmation(value: string | null) {
+  return value?.trim().toUpperCase() === accountDeletionConfirmationText;
+}
+
 const weekDays = [
   "Domingo",
   "Lunes",
@@ -907,6 +913,10 @@ export default function Home() {
   const [isUploadingCustomerAvatar, setIsUploadingCustomerAvatar] = useState(false);
   const [customerAvatarMessage, setCustomerAvatarMessage] =
     useState<FormMessage | null>(null);
+  const [accountDeletionMessage, setAccountDeletionMessage] =
+    useState<FormMessage | null>(null);
+  const [isRequestingAccountDeletion, setIsRequestingAccountDeletion] =
+    useState(false);
   const [isLoadingCustomerAppointments, setIsLoadingCustomerAppointments] =
     useState(false);
   const [isCustomerAdmin, setIsCustomerAdmin] = useState(false);
@@ -1731,6 +1741,8 @@ export default function Home() {
     setCustomerAvatarFile(null);
     setCustomerAvatarMessage(null);
     setIsUploadingCustomerAvatar(false);
+    setAccountDeletionMessage(null);
+    setIsRequestingAccountDeletion(false);
     setCustomerAppointments([]);
     setCustomerAppointmentsMessage(null);
     setFavoriteBusinessIds([]);
@@ -2457,12 +2469,84 @@ export default function Home() {
     setCustomerAppointments((data ?? []) as CustomerAppointment[]);
   }
 
-  async function loadFavoriteBusinesses() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
+  async function requestAccountDeletionFromCustomerProfile() {
+    if (!customerUser) {
+      return;
+    }
 
-    if (!accessToken) {
+    const confirmation = window.prompt(
+      `Esta solicitud afecta a toda tu cuenta FlowBarber, incluido el acceso al panel de barbero si también lo tienes. Se revisará la eliminación o anonimización de tus datos y, cuando se complete, el acceso puede cerrarse de forma irreversible.\n\nEscribe "${accountDeletionConfirmationText}" para continuar.`
+    );
+
+    if (!isValidAccountDeletionConfirmation(confirmation)) {
+      setAccountDeletionMessage({
+        text: "Solicitud cancelada. No se ha pedido la eliminación de la cuenta.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsRequestingAccountDeletion(true);
+    setAccountDeletionMessage(null);
+
+    const { data: refreshedSessionData } = await supabase.auth.refreshSession();
+    const session =
+      refreshedSessionData.session ??
+      (await supabase.auth.getSession()).data.session;
+
+    if (!session) {
+      setIsRequestingAccountDeletion(false);
+      setAccountDeletionMessage({
+        text: "Inicia sesión de nuevo para solicitar la eliminación.",
+        type: "error"
+      });
+      return;
+    }
+
+    const response = await fetch("/api/account-deletion/request", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        confirmation: accountDeletionConfirmationText,
+        source: "customer_app"
+      })
+    });
+    const result = await response.json().catch(() => null);
+
+    setIsRequestingAccountDeletion(false);
+
+    if (!response.ok) {
+      setAccountDeletionMessage({
+        text:
+          result?.error ??
+          "No se pudo registrar la solicitud de eliminación.",
+        type: "error"
+      });
+      return;
+    }
+
+    setAccountDeletionMessage({
+      text: result?.already_exists
+        ? "Ya hay una solicitud de eliminación pendiente para esta cuenta."
+        : "Solicitud registrada. Revisaremos la cuenta completa y te contactaremos si hace falta confirmar algún dato.",
+      type: "success"
+    });
+  }
+
+  async function loadFavoriteBusinesses() {
+    const { data: refreshedSessionData, error: refreshError } =
+      await supabase.auth.refreshSession();
+    const session =
+      refreshedSessionData.session ??
+      (await supabase.auth.getSession()).data.session;
+    const accessToken = session?.access_token;
+
+    if (refreshError || !accessToken) {
       setFavoriteBusinessIds([]);
+      setFavoriteBusinessMessage(null);
       return;
     }
 
@@ -2476,7 +2560,13 @@ export default function Home() {
       | null;
 
     if (!response.ok) {
-      console.error(
+      if (response.status === 401 || response.status === 403) {
+        setFavoriteBusinessIds([]);
+        setFavoriteBusinessMessage(null);
+        return;
+      }
+
+      console.warn(
         "Error loading favorite businesses:",
         result?.error ?? response.statusText
       );
@@ -2493,12 +2583,16 @@ export default function Home() {
 
   async function toggleFavoriteBusiness(businessId: string) {
     const isFavorite = favoriteBusinessIdSet.has(businessId);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
+    const { data: refreshedSessionData, error: refreshError } =
+      await supabase.auth.refreshSession();
+    const session =
+      refreshedSessionData.session ??
+      (await supabase.auth.getSession()).data.session;
+    const accessToken = session?.access_token;
 
-    if (!accessToken) {
+    if (refreshError || !accessToken) {
       setFavoriteBusinessMessage({
-        text: "Debes iniciar sesión para guardar favoritas.",
+        text: "Vuelve a iniciar sesión para guardar barberías favoritas.",
         type: "error"
       });
       return;
@@ -2521,12 +2615,17 @@ export default function Home() {
         | null;
 
       if (!response.ok) {
+        const fallbackError =
+          response.status === 401
+            ? "Vuelve a iniciar sesión para guardar barberías favoritas."
+            : response.status === 403
+              ? "Solo los perfiles de cliente activos pueden guardar barberías favoritas."
+              : isFavorite
+                ? "No se pudo quitar la barbería favorita."
+                : "No se pudo guardar la barbería favorita.";
+
         setFavoriteBusinessMessage({
-          text:
-            result?.error ??
-            (isFavorite
-              ? "No se pudo quitar la barbería favorita."
-              : "No se pudo guardar la barbería favorita."),
+          text: result?.error ?? fallbackError,
           type: "error"
         });
         return;
@@ -4119,6 +4218,49 @@ export default function Home() {
                   {isSavingCustomerProfile ? "Guardando..." : "Guardar perfil"}
                 </button>
               </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-red-400/35 bg-red-500/10 p-4">
+            <h2 className="text-lg font-bold text-white">Eliminar cuenta</h2>
+            <p className="mt-2 text-sm leading-6 text-white/65">
+              Solicita eliminar tu cuenta completa de FlowBarber. Si este mismo
+              email también tiene acceso como barbero, propietario o empleado,
+              la revisión incluirá todos los perfiles asociados.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-white/45">
+              Mientras la solicitud esté pendiente podrás seguir accediendo,
+              salvo que tengamos que limitar la cuenta por seguridad,
+              facturación o titularidad de una barbería.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <Link
+                className="rounded-2xl border border-white/10 px-4 py-3 text-center text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
+                href="/eliminar-cuenta"
+              >
+                Ver información pública
+              </Link>
+              <button
+                className="rounded-2xl border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isRequestingAccountDeletion}
+                onClick={requestAccountDeletionFromCustomerProfile}
+                type="button"
+              >
+                {isRequestingAccountDeletion
+                  ? "Registrando solicitud..."
+                  : "Solicitar eliminación de cuenta"}
+              </button>
+            </div>
+            {accountDeletionMessage && (
+              <p
+                className={
+                  accountDeletionMessage.type === "success"
+                    ? "mt-3 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-sm font-semibold leading-6 text-barber-gold"
+                    : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold leading-6 text-red-100"
+                }
+              >
+                {accountDeletionMessage.text}
+              </p>
             )}
           </div>
 

@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     "Política de privacidad de FlowBarber para usuarios, clientes y barberías."
 };
 
-const lastUpdated = "11 de septiembre de 2026";
+const lastUpdated = "14 de septiembre de 2026";
 const publicDomain = "barber.flowreservas.app";
 const privacyContact = "juanjo26.8.1997@gmail.com";
 
@@ -256,9 +256,16 @@ export default function PrivacyPage() {
           <Section title="9. Eliminación de cuenta y datos">
             <p>
               Puedes pedir la eliminación de tu cuenta y de los datos asociados
-              contactando por {privacyContact}. Si eres cliente, la petición
-              afectará a tu perfil, datos de contacto, foto, favoritos, reseñas
-              y reservas asociadas en la medida legalmente posible.
+              desde la app o desde la página pública{" "}
+              <Link
+                className="font-bold text-barber-gold underline-offset-4 hover:underline"
+                href="/eliminar-cuenta"
+              >
+                /eliminar-cuenta
+              </Link>
+              . Si eres cliente, la petición afectará a tu perfil, datos de
+              contacto, foto, favoritos, reseñas y reservas asociadas en la
+              medida legalmente posible.
             </p>
             <p>
               Si eres propietario o empleado de una barbería, la eliminación

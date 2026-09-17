@@ -226,6 +226,12 @@ type PanelSectionKey =
   | "blocks"
   | "schedule";
 
+const accountDeletionConfirmationText = "ELIMINAR CUENTA";
+
+function isValidAccountDeletionConfirmation(value: string | null) {
+  return value?.trim().toUpperCase() === accountDeletionConfirmationText;
+}
+
 const defaultBlockCancellationMessage =
   "Hola {nombre}, sentimos avisarte de que tu cita del día {fecha} a las {hora}, ha sido cancelada porque la barbería no estará disponible en ese horario.\nDisculpa las molestias.";
 
@@ -1008,6 +1014,12 @@ export default function BarberPanel() {
   const [settingsMessageType, setSettingsMessageType] = useState<
     "success" | "error"
   >("success");
+  const [accountDeletionMessage, setAccountDeletionMessage] = useState("");
+  const [accountDeletionMessageType, setAccountDeletionMessageType] = useState<
+    "success" | "error"
+  >("success");
+  const [isRequestingAccountDeletion, setIsRequestingAccountDeletion] =
+    useState(false);
   const [newService, setNewService] = useState<NewServiceForm>({
     name: "",
     price: "",
@@ -1425,6 +1437,9 @@ export default function BarberPanel() {
     setManualMessageType("success");
     setSettingsMessage("");
     setSettingsMessageType("success");
+    setAccountDeletionMessage("");
+    setAccountDeletionMessageType("success");
+    setIsRequestingAccountDeletion(false);
     if (!keepAccessDenied) {
       setPanelAccessDenied(false);
       setPanelAccessMessage(
@@ -1696,6 +1711,67 @@ export default function BarberPanel() {
     setEmail("");
     setPassword("");
     clearPanelData();
+  }
+
+  async function requestAccountDeletionFromPanel() {
+    const confirmation = window.prompt(
+      `Esta solicitud afecta a toda tu cuenta FlowBarber, no solo a esta barbería. Se revisará tu acceso como barbero y cualquier perfil de cliente asociado al mismo usuario. Cuando se complete, el acceso puede cerrarse de forma irreversible.\n\nEscribe "${accountDeletionConfirmationText}" para continuar.`
+    );
+
+    if (!isValidAccountDeletionConfirmation(confirmation)) {
+      setAccountDeletionMessageType("error");
+      setAccountDeletionMessage(
+        "Solicitud cancelada. No se ha pedido la eliminación de la cuenta."
+      );
+      return;
+    }
+
+    setIsRequestingAccountDeletion(true);
+    setAccountDeletionMessage("");
+
+    const { data: refreshedSessionData } = await supabase.auth.refreshSession();
+    const session =
+      refreshedSessionData.session ??
+      (await supabase.auth.getSession()).data.session;
+
+    if (!session) {
+      setIsRequestingAccountDeletion(false);
+      setAccountDeletionMessageType("error");
+      setAccountDeletionMessage(
+        "Inicia sesión de nuevo para solicitar la eliminación."
+      );
+      return;
+    }
+
+    const response = await fetch("/api/account-deletion/request", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        confirmation: accountDeletionConfirmationText,
+        source: "barber_panel"
+      })
+    });
+    const result = await response.json().catch(() => null);
+
+    setIsRequestingAccountDeletion(false);
+
+    if (!response.ok) {
+      setAccountDeletionMessageType("error");
+      setAccountDeletionMessage(
+        result?.error ?? "No se pudo registrar la solicitud de eliminación."
+      );
+      return;
+    }
+
+    setAccountDeletionMessageType("success");
+    setAccountDeletionMessage(
+      result?.already_exists
+        ? "Ya hay una solicitud de eliminación pendiente para esta cuenta."
+        : "Solicitud registrada. Revisaremos la cuenta completa y te contactaremos si hace falta confirmar titularidad o datos de la barbería."
+    );
   }
 
   async function startSubscriptionCheckout() {
@@ -5184,6 +5260,55 @@ export default function BarberPanel() {
             </div>
           </div>
         </header>
+
+        <section className="mb-8 rounded-2xl border border-red-400/35 bg-red-500/10 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
+            Cuenta FlowBarber
+          </p>
+          <h2 className="mt-2 text-xl font-bold text-white">
+            Eliminación de cuenta
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-white/68">
+            Solicita eliminar la cuenta completa asociada a tu sesión. Si
+            también tienes perfil de cliente, o si tu usuario es propietario,
+            manager o empleado de una barbería, la revisión incluirá todos esos
+            accesos y datos asociados.
+          </p>
+          <p className="mt-2 text-xs leading-5 text-white/45">
+            Mientras la solicitud esté pendiente podrás seguir accediendo, salvo
+            que sea necesario limitar la cuenta por seguridad, facturación,
+            titularidad de la barbería o una obligación legal.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Link
+              className="rounded-2xl border border-white/10 px-4 py-3 text-center text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
+              href="/eliminar-cuenta"
+            >
+              Ver información pública
+            </Link>
+            <button
+              className="rounded-2xl border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isRequestingAccountDeletion}
+              onClick={requestAccountDeletionFromPanel}
+              type="button"
+            >
+              {isRequestingAccountDeletion
+                ? "Registrando solicitud..."
+                : "Solicitar eliminación"}
+            </button>
+          </div>
+          {accountDeletionMessage && (
+            <p
+              className={
+                accountDeletionMessageType === "success"
+                  ? "mt-3 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-sm font-semibold leading-6 text-barber-gold"
+                  : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold leading-6 text-red-100"
+              }
+            >
+              {accountDeletionMessage}
+            </p>
+          )}
+        </section>
 
         {isOwnerPanelRole && (
         <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
