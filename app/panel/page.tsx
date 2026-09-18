@@ -5261,55 +5261,6 @@ export default function BarberPanel() {
           </div>
         </header>
 
-        <section className="mb-8 rounded-2xl border border-red-400/35 bg-red-500/10 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-100">
-            Cuenta FlowBarber
-          </p>
-          <h2 className="mt-2 text-xl font-bold text-white">
-            Eliminación de cuenta
-          </h2>
-          <p className="mt-3 text-sm leading-6 text-white/68">
-            Solicita eliminar la cuenta completa asociada a tu sesión. Si
-            también tienes perfil de cliente, o si tu usuario es propietario,
-            manager o empleado de una barbería, la revisión incluirá todos esos
-            accesos y datos asociados.
-          </p>
-          <p className="mt-2 text-xs leading-5 text-white/45">
-            Mientras la solicitud esté pendiente podrás seguir accediendo, salvo
-            que sea necesario limitar la cuenta por seguridad, facturación,
-            titularidad de la barbería o una obligación legal.
-          </p>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Link
-              className="rounded-2xl border border-white/10 px-4 py-3 text-center text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold"
-              href="/eliminar-cuenta"
-            >
-              Ver información pública
-            </Link>
-            <button
-              className="rounded-2xl border border-red-400/50 bg-red-500/20 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isRequestingAccountDeletion}
-              onClick={requestAccountDeletionFromPanel}
-              type="button"
-            >
-              {isRequestingAccountDeletion
-                ? "Registrando solicitud..."
-                : "Solicitar eliminación"}
-            </button>
-          </div>
-          {accountDeletionMessage && (
-            <p
-              className={
-                accountDeletionMessageType === "success"
-                  ? "mt-3 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-sm font-semibold leading-6 text-barber-gold"
-                  : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold leading-6 text-red-100"
-              }
-            >
-              {accountDeletionMessage}
-            </p>
-          )}
-        </section>
-
         {isOwnerPanelRole && (
         <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -7616,6 +7567,30 @@ export default function BarberPanel() {
                 >
                   Guardar configuración
                 </button>
+              </div>
+
+              <div className="border-t border-white/10 pt-4">
+                <button
+                  className="w-full rounded-2xl border border-red-400/30 px-4 py-3 text-sm font-semibold text-red-100/80 transition hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isRequestingAccountDeletion}
+                  onClick={requestAccountDeletionFromPanel}
+                  type="button"
+                >
+                  {isRequestingAccountDeletion
+                    ? "Registrando solicitud..."
+                    : "Eliminar mi barbería"}
+                </button>
+                {accountDeletionMessage && (
+                  <p
+                    className={
+                      accountDeletionMessageType === "success"
+                        ? "mt-3 rounded-2xl border border-barber-gold/30 bg-barber-gold/10 p-3 text-sm font-semibold leading-6 text-barber-gold"
+                        : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold leading-6 text-red-100"
+                    }
+                  >
+                    {accountDeletionMessage}
+                  </p>
+                )}
               </div>
             </div>
           )}
