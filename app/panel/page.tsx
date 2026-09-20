@@ -924,6 +924,7 @@ export default function BarberPanel() {
   >("success");
   const [isSubscriptionActionLoading, setIsSubscriptionActionLoading] =
     useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [publicBookingLinkMessage, setPublicBookingLinkMessage] = useState("");
   const [businessImageFile, setBusinessImageFile] = useState<File | null>(null);
   const [businessImageMessage, setBusinessImageMessage] = useState("");
@@ -5262,101 +5263,172 @@ export default function BarberPanel() {
         </header>
 
         {isOwnerPanelRole && (
-        <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
-                Mi plan
-              </p>
-              <h2 className="mt-2 text-xl font-bold text-white">
-                Plan: {planNameLabel}
-              </h2>
-              <p
-                className={
-                  currentBusinessPlanStatus === "inactive"
-                    ? "mt-2 text-sm font-semibold text-red-100"
-                    : "mt-2 text-sm font-semibold text-barber-gold"
-                }
+          <>
+            <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <button
+                aria-haspopup="dialog"
+                aria-expanded={isPlanModalOpen}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-barber-gold/25 bg-black/25 px-4 py-3 text-left transition hover:border-barber-gold/60 hover:bg-barber-gold/10 active:scale-[0.98]"
+                onClick={() => setIsPlanModalOpen(true)}
+                type="button"
               >
-                Estado: {planStatusLabel}
-              </p>
-            </div>
-            <button
-              className="rounded-2xl bg-barber-gold px-4 py-3 text-xs font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSubscriptionActionLoading}
-              onClick={
-                shouldManageSubscription
-                  ? openSubscriptionPortal
-                  : startSubscriptionCheckout
-              }
-              type="button"
-            >
-              {isSubscriptionActionLoading
-                ? "Preparando..."
-                : shouldManageSubscription
-                  ? "Gestionar suscripción"
-                  : "Activar suscripción"}
-            </button>
-          </div>
-
-          {currentBusinessPlanStatus === "demo" && (
-            <div className="mt-4 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4 text-sm leading-6 text-barber-gold">
-              <p>
-                Días restantes de prueba:{" "}
-                <span className="font-bold">{trialDaysRemaining ?? 0}</span>
-              </p>
-              <p>
-                Finaliza el:{" "}
-                <span className="font-bold">
-                  {formatPlanDate(currentBusinessTrialEndsAt)}
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
+                    Mi plan
+                  </span>
+                  <span className="mt-1 block truncate text-base font-bold text-white">
+                    Mi plan · {planNameLabel}
+                  </span>
                 </span>
-              </p>
-            </div>
-          )}
+                <span
+                  className={
+                    currentBusinessPlanStatus === "inactive"
+                      ? "shrink-0 rounded-full border border-red-400/35 bg-red-400/10 px-3 py-1 text-xs font-bold text-red-100"
+                      : "shrink-0 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-100"
+                  }
+                >
+                  {planStatusLabel}
+                </span>
+              </button>
+            </section>
 
-          {currentBusinessPlanStatus === "active" && (
-            <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold leading-6 text-emerald-100">
-              <p>Suscripción activa.</p>
-              {currentBusinessSubscriptionEndsAt && (
-                <p className="mt-2">
-                  Tu suscripción se cancelará el{" "}
-                  {formatPlanDate(currentBusinessSubscriptionEndsAt)}. Podrás
-                  seguir recibiendo reservas hasta esa fecha.
-                </p>
-              )}
-            </div>
-          )}
+            {isPlanModalOpen && (
+              <div
+                className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 px-4 py-5 backdrop-blur-sm sm:items-center"
+                onClick={() => setIsPlanModalOpen(false)}
+              >
+                <section
+                  aria-labelledby="plan-modal-title"
+                  aria-modal="true"
+                  className="max-h-[calc(100vh-2.5rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/10 bg-barber-gray p-5 shadow-2xl shadow-black/60"
+                  onClick={(event) => event.stopPropagation()}
+                  role="dialog"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-barber-gold">
+                        FlowBarber
+                      </p>
+                      <h2
+                        className="mt-2 text-2xl font-bold text-white"
+                        id="plan-modal-title"
+                      >
+                        Mi plan
+                      </h2>
+                    </div>
+                    <button
+                      aria-label="Cerrar"
+                      className="rounded-full border border-white/10 px-3 py-2 text-sm font-bold text-white/70 transition hover:border-barber-gold/50 hover:text-barber-gold active:scale-[0.98]"
+                      onClick={() => setIsPlanModalOpen(false)}
+                      type="button"
+                    >
+                      X
+                    </button>
+                  </div>
 
-          {isSubscriptionPastDue && (
-            <p className="mt-4 rounded-2xl border border-orange-400/35 bg-orange-400/10 p-4 text-sm font-semibold leading-6 text-orange-100">
-              {isPaymentGraceExpired
-                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para continuar utilizando flowbarber."
-                : `No hemos podido procesar el último pago. Dispones de ${paymentGraceHoursRemaining ?? paymentGraceHours} horas para actualizar tu método de pago antes de que se suspenda temporalmente el servicio.`}
-            </p>
-          )}
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <span className="text-sm font-semibold text-white/55">
+                        Plan
+                      </span>
+                      <span className="text-sm font-bold text-white">
+                        {planNameLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 pt-3">
+                      <span className="text-sm font-semibold text-white/55">
+                        Estado
+                      </span>
+                      <span
+                        className={
+                          currentBusinessPlanStatus === "inactive"
+                            ? "rounded-full border border-red-400/35 bg-red-400/10 px-3 py-1 text-xs font-bold text-red-100"
+                            : "rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-bold text-emerald-100"
+                        }
+                      >
+                        {planStatusLabel}
+                      </span>
+                    </div>
+                  </div>
 
-          {currentBusinessPlanStatus === "inactive" && (
-            <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
-              {isSubscriptionUnpaid
-                ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para reactivar el servicio."
-                : isSubscriptionIncomplete
-                  ? "No se pudo completar la suscripción. Puedes volver a intentarlo para activar las reservas públicas."
-                  : "Tu periodo de prueba ha terminado. Activa una suscripción para volver a recibir reservas."}
-            </p>
-          )}
+                  {currentBusinessPlanStatus === "demo" && (
+                    <div className="mt-4 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-4 text-sm leading-6 text-barber-gold">
+                      <p>
+                        Días restantes de prueba:{" "}
+                        <span className="font-bold">{trialDaysRemaining ?? 0}</span>
+                      </p>
+                      <p>
+                        Finaliza el:{" "}
+                        <span className="font-bold">
+                          {formatPlanDate(currentBusinessTrialEndsAt)}
+                        </span>
+                      </p>
+                    </div>
+                  )}
 
-          {subscriptionMessage && (
-            <p
-              className={
-                subscriptionMessageType === "success"
-                  ? "mt-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-3 text-sm font-semibold text-barber-gold"
-                  : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100"
-              }
-            >
-              {subscriptionMessage}
-            </p>
-          )}
-        </section>
+                  {currentBusinessPlanStatus === "active" && (
+                    <div className="mt-4 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm font-semibold leading-6 text-emerald-100">
+                      <p>Suscripción activa.</p>
+                      {currentBusinessSubscriptionEndsAt && (
+                        <p className="mt-2">
+                          Tu suscripción se cancelará el{" "}
+                          {formatPlanDate(currentBusinessSubscriptionEndsAt)}.
+                          Podrás seguir recibiendo reservas hasta esa fecha.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {isSubscriptionPastDue && (
+                    <p className="mt-4 rounded-2xl border border-orange-400/35 bg-orange-400/10 p-4 text-sm font-semibold leading-6 text-orange-100">
+                      {isPaymentGraceExpired
+                        ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para continuar utilizando flowbarber."
+                        : `No hemos podido procesar el último pago. Dispones de ${paymentGraceHoursRemaining ?? paymentGraceHours} horas para actualizar tu método de pago antes de que se suspenda temporalmente el servicio.`}
+                    </p>
+                  )}
+
+                  {currentBusinessPlanStatus === "inactive" && (
+                    <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm font-semibold leading-6 text-red-100">
+                      {isSubscriptionUnpaid
+                        ? "Tu suscripción está suspendida por impago. Actualiza tu método de pago para reactivar el servicio."
+                        : isSubscriptionIncomplete
+                          ? "No se pudo completar la suscripción. Puedes volver a intentarlo para activar las reservas públicas."
+                          : "Tu periodo de prueba ha terminado. Activa una suscripción para volver a recibir reservas."}
+                    </p>
+                  )}
+
+                  {subscriptionMessage && (
+                    <p
+                      className={
+                        subscriptionMessageType === "success"
+                          ? "mt-3 rounded-2xl border border-barber-gold/25 bg-barber-gold/10 p-3 text-sm font-semibold text-barber-gold"
+                          : "mt-3 rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-sm font-semibold text-red-100"
+                      }
+                    >
+                      {subscriptionMessage}
+                    </p>
+                  )}
+
+                  <button
+                    className="mt-5 w-full rounded-2xl bg-barber-gold px-4 py-3 text-sm font-bold text-black shadow-lg shadow-barber-gold/20 transition hover:bg-[#e7b65f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSubscriptionActionLoading}
+                    onClick={
+                      shouldManageSubscription
+                        ? openSubscriptionPortal
+                        : startSubscriptionCheckout
+                    }
+                    type="button"
+                  >
+                    {isSubscriptionActionLoading
+                      ? "Preparando..."
+                      : shouldManageSubscription
+                        ? "Gestionar suscripción"
+                        : "Activar suscripción"}
+                  </button>
+                </section>
+              </div>
+            )}
+          </>
         )}
 
         {isPaymentGraceExpired ? (
