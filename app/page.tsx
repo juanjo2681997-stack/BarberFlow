@@ -740,7 +740,7 @@ function getCustomerAppointmentStatusLabel(appointment: CustomerAppointment) {
     completed: "Realizada",
     failed: "No realizada",
     no_show: "No asistió",
-    pending: "Pendiente",
+    pending: "Confirmada",
     sent: "Avisada"
   };
 
@@ -3992,7 +3992,13 @@ export default function Home() {
                       </p>
                     </div>
                     {appointmentStatusLabel && (
-                      <span className="rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold">
+                      <span
+                        className={
+                          appointmentStatusLabel === "Confirmada"
+                            ? "rounded-full border border-green-400/40 bg-green-400/10 px-3 py-1 text-xs font-bold text-green-200"
+                            : "rounded-full border border-barber-gold/30 px-3 py-1 text-xs font-bold text-barber-gold"
+                        }
+                      >
                         {appointmentStatusLabel}
                       </span>
                     )}
