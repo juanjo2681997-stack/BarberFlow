@@ -22,3 +22,13 @@ pnpm-debug.log*
 Thumbs.db
 
 .env.local
+.tooling/
+
+# Android signing credentials and build outputs
+android/key.properties
+android/*.jks
+android/*.keystore
+android/app/*.jks
+android/app/*.keystore
+android/.gradle
+android/app/build

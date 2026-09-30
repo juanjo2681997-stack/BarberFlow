@@ -5,9 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "android:sync": "cap sync android",
+    "android:open": "cap open android",
+    "android:bundle": "pnpm android:sync && cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@supabase/supabase-js": "^2.108.2",
     "next": "16.2.9",
     "react": "19.2.7",
@@ -15,6 +20,8 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
     "@types/node": "20.14.10",
     "@types/react": "19.0.12",
     "@types/react-dom": "19.0.4",
