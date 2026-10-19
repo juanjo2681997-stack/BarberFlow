@@ -22,3 +22,12 @@ pnpm-debug.log*
 Thumbs.db
 
 .env.local
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
+google-services.json
+*service-account*.json
+*.tsbuildinfo

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { activateNativeNotifications, isNativeAndroid, releaseNativeDevice } from "@/lib/push/native";
 
 type Appointment = {
   id: string;
@@ -1708,6 +1709,12 @@ export default function BarberPanel() {
   }
 
   async function handleLogout() {
+    try {
+      await releaseNativeDevice();
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "No se pudo cerrar la sesión.");
+      return;
+    }
     await supabase.auth.signOut();
     setEmail("");
     setPassword("");
@@ -2393,6 +2400,20 @@ export default function BarberPanel() {
   }
 
   async function activateBarberCancellationNotifications() {
+    if (isNativeAndroid()) {
+      setIsActivatingBarberCancellationPush(true);
+      try {
+        await activateNativeNotifications();
+        setBarberCancellationPushMessageType("success");
+        setBarberCancellationPushMessage("Notificaciones Android activadas.");
+      } catch (error) {
+        setBarberCancellationPushMessageType("error");
+        setBarberCancellationPushMessage(error instanceof Error ? error.message : "No se pudieron activar los avisos.");
+      } finally {
+        setIsActivatingBarberCancellationPush(false);
+      }
+      return;
+    }
     if (!currentBusinessId) {
       setBarberCancellationPushMessageType("error");
       setBarberCancellationPushMessage("No se pudo cargar la barbería.");
@@ -4144,6 +4165,9 @@ export default function BarberPanel() {
       .from("appointments")
       .update({
         appointment_status: nextStatus,
+        status: "pending",
+        cancelled_at: null,
+        cancellation_reason: null,
         status_updated_at: new Date().toISOString()
       })
       .eq("id", id)
@@ -6787,7 +6811,8 @@ export default function BarberPanel() {
                         </p>
 
                         {slotInfo.type === "appointment-start" && appointment && (
-                          <div>
+                          <>
+                          <div className="min-w-0 break-words">
                             <p className="font-bold text-white">
                               {formatAppointmentTime(appointment.appointment_time)} -{" "}
                               {appointment.customer_name}
@@ -6808,7 +6833,9 @@ export default function BarberPanel() {
                                 }
                               </span>
                             </p>
-                            <div className="mt-3 grid grid-cols-3 gap-2">
+                          </div>
+                          <div className="col-span-2 min-w-0">
+                            <div className="agenda-actions mt-3 grid grid-cols-2 gap-2">
                               <button
                                 className="rounded-full border border-barber-gold/50 px-3 py-2 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98]"
                                 onClick={() => openEditAppointment(appointment)}
@@ -6824,14 +6851,14 @@ export default function BarberPanel() {
                                 Eliminar
                               </button>
                               <button
-                                className="rounded-full border border-green-400/45 px-3 py-2 text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
+                                className="col-span-2 rounded-full border border-green-400/45 px-3 py-2 text-xs font-semibold text-green-200 transition hover:bg-green-400/10 active:scale-[0.98]"
                                 onClick={() => openAppointmentWhatsApp(appointment)}
                                 type="button"
                               >
                                 WhatsApp
                               </button>
                             </div>
-                            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <div className="agenda-actions mt-2 grid grid-cols-2 gap-2">
                               {appointmentStatusActions.map((action) => {
                                 const isCurrentStatus =
                                   appointment.appointment_status === action.status;
@@ -6859,6 +6886,7 @@ export default function BarberPanel() {
                               })}
                             </div>
                           </div>
+                          </>
                         )}
 
                         {slotInfo.type === "appointment-continuation" &&

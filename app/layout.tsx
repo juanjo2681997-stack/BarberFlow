@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import NativeNotifications from "./NativeNotifications";
 
 export const metadata: Metadata = {
   title: "flowbarber",
@@ -13,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body><NativeNotifications />{children}</body>
     </html>
   );
 }

@@ -39,3 +39,17 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+.agenda-actions {
+  min-width: 0;
+}
+
+.agenda-actions > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  text-align: center;
+}

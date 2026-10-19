@@ -146,14 +146,11 @@ async function handleSendPushReminders(request: Request) {
     process.env.CRON_SECRET
   ].filter(Boolean);
   const authorization = request.headers.get("authorization");
-  const userAgent = request.headers.get("user-agent") || "";
   const isAuthorized = allowedSecrets.some(
     (secret) => authorization === `Bearer ${secret}`
   );
-  const isVercelCron = userAgent.toLowerCase().includes("vercel-cron");
-  const isVercelCronWithoutAuthorization = !authorization && isVercelCron;
 
-  if (!isAuthorized && !isVercelCronWithoutAuthorization) {
+  if (!isAuthorized) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
@@ -190,6 +187,8 @@ async function handleSendPushReminders(request: Request) {
     .select("id, business_id, appointment_time, customer_name, service")
     .eq("appointment_date", tomorrow)
     .eq("reminder_status", "pending")
+    .or("status.is.null,status.not.in.(cancelled,completed,no_show)")
+    .or("appointment_status.is.null,appointment_status.not.in.(cancelled,completed,no_show)")
     .order("appointment_time", { ascending: true });
 
   if (appointmentsError) {

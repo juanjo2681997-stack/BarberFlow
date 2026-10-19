@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import { activateNativeNotifications, isNativeAndroid, releaseNativeDevice } from "@/lib/push/native";
 
 type BookingForm = {
   service: string;
@@ -729,6 +730,7 @@ function getBusinessAddress(business: Business) {
 }
 
 function getCustomerAppointmentStatusLabel(appointment: CustomerAppointment) {
+  if (appointment.status === "cancelled" || appointment.appointment_status === "cancelled") return "Cancelada";
   const status =
     appointment.appointment_status?.trim() ||
     appointment.status?.trim() ||
@@ -868,6 +870,9 @@ export default function Home() {
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [customerUser, setCustomerUser] = useState<User | null>(null);
+  const customerAppointmentsRequest = useRef(0);
+  const activeCustomerId = useRef<string | null>(null);
+  activeCustomerId.current = customerUser?.id ?? null;
   const [customerAuthForm, setCustomerAuthForm] = useState<CustomerAuthForm>(
     initialCustomerAuthForm
   );
@@ -1100,6 +1105,34 @@ export default function Home() {
 
     loadCustomerAppointments(customerUser.id);
     loadFavoriteBusinesses();
+  }, [customerUser?.id, isCustomerAdmin]);
+
+  useEffect(() => {
+    if (!customerUser || isCustomerAdmin) return;
+    const userId = customerUser.id;
+    if (new URLSearchParams(window.location.search).get("view") === "appointments") {
+      setCustomerSection("profile");
+    }
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadCustomerAppointments(userId);
+    };
+    const channel = supabase.channel(`customer-appointments:${userId}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "appointments",
+        filter: `customer_user_id=eq.${userId}`
+      }, refresh)
+      .subscribe();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("flowbarber:appointments-changed", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const interval = window.setInterval(refresh, 30000);
+    return () => {
+      void supabase.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("flowbarber:appointments-changed", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.clearInterval(interval);
+    };
   }, [customerUser?.id, isCustomerAdmin]);
 
   useEffect(() => {
@@ -2162,6 +2195,13 @@ export default function Home() {
   async function logoutCustomer() {
     setIsCustomerAuthLoading(true);
 
+    try {
+      await releaseNativeDevice();
+    } catch (error) {
+      setIsCustomerAuthLoading(false);
+      setCustomerMessage({ text: error instanceof Error ? error.message : "No se pudo cerrar la sesión.", type: "error" });
+      return;
+    }
     await supabase.auth.signOut();
 
     setIsCustomerAuthLoading(false);
@@ -2440,6 +2480,7 @@ export default function Home() {
   }
 
   async function loadCustomerAppointments(userId: string) {
+    const requestId = ++customerAppointmentsRequest.current;
     setIsLoadingCustomerAppointments(true);
     setCustomerAppointmentsMessage(null);
 
@@ -2449,12 +2490,11 @@ export default function Home() {
         "id, business_id, service, appointment_date, appointment_time, customer_name, customer_phone, reminder_status, status, appointment_status"
       )
       .eq("customer_user_id", userId)
-      .or("status.is.null,status.neq.cancelled")
-      .or("appointment_status.is.null,appointment_status.neq.cancelled")
       .gte("appointment_date", formatDateForSupabase(new Date()))
       .order("appointment_date", { ascending: true })
       .order("appointment_time", { ascending: true });
 
+    if (activeCustomerId.current !== userId || requestId !== customerAppointmentsRequest.current) return;
     setIsLoadingCustomerAppointments(false);
 
     if (error) {
@@ -2709,8 +2749,10 @@ export default function Home() {
       }
 
       setCustomerAppointments((currentAppointments) =>
-        currentAppointments.filter(
-          (currentAppointment) => currentAppointment.id !== appointment.id
+        currentAppointments.map(
+          (currentAppointment) => currentAppointment.id === appointment.id
+            ? { ...currentAppointment, status: "cancelled", appointment_status: "cancelled" }
+            : currentAppointment
         )
       );
       setCustomerAppointmentsMessage({
@@ -3300,6 +3342,19 @@ export default function Home() {
   }
 
   async function activatePushReminder() {
+    if (isNativeAndroid()) {
+      setIsActivatingPush(true);
+      setPushMessage(null);
+      try {
+        await activateNativeNotifications();
+        setPushMessage({ text: "Notificaciones Android activadas para tus citas.", type: "success" });
+      } catch (error) {
+        setPushMessage({ text: error instanceof Error ? error.message : "No se pudieron activar los avisos.", type: "error" });
+      } finally {
+        setIsActivatingPush(false);
+      }
+      return;
+    }
     if (!currentBusinessId) {
       setPushMessage({
         text: "No se pudo cargar la barbería.",
@@ -3946,6 +4001,11 @@ export default function Home() {
     return (
       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
         <h2 className="text-lg font-bold text-white">Mis citas</h2>
+        <button className="mt-3 rounded-xl border border-barber-gold/40 px-4 py-3 text-sm text-barber-gold"
+          onClick={activatePushReminder} disabled={isActivatingPush} type="button">
+          {isActivatingPush ? "Activando..." : "Activar avisos de mis citas"}
+        </button>
+        {pushMessage && <p role="status" className="mt-2 text-sm text-white/70">{pushMessage.text}</p>}
 
         {customerAppointmentsMessage && (
           <p
@@ -3968,7 +4028,9 @@ export default function Home() {
         ) : (
           <div className="mt-4 space-y-3">
             {customerAppointments.map((appointment) => {
+              const isCancelled = appointment.status === "cancelled" || appointment.appointment_status === "cancelled";
               const canCancelAppointment =
+                !isCancelled && !["completed", "no_show"].includes(appointment.appointment_status || "") &&
                 canCustomerCancelAppointment(appointment);
               const isCancellingAppointment =
                 cancellingCustomerAppointmentId === appointment.id;
@@ -4037,7 +4099,7 @@ export default function Home() {
                         ? "Cancelando..."
                         : canCancelAppointment
                           ? "Cancelar cita"
-                          : "Fuera de plazo"}
+                          : isCancelled ? "Cita cancelada" : "No disponible"}
                     </button>
                   </div>
                   {!canContactByWhatsApp && (
@@ -4045,7 +4107,7 @@ export default function Home() {
                       Esta barbería todavía no tiene WhatsApp configurado.
                     </p>
                   )}
-                  {!canCancelAppointment && (
+                  {!canCancelAppointment && !isCancelled && (
                     <p className="mt-2 text-xs leading-5 text-white/45">
                       Las citas no se pueden cancelar online con menos de 24 horas de antelación.
                     </p>

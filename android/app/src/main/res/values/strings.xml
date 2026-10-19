@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FlowBarber</string>
+    <string name="title_activity_main">FlowBarber</string>
+    <string name="package_name">app.flowreservas.flowbarber</string>
+    <string name="custom_url_scheme">app.flowreservas.flowbarber</string>
+</resources>
