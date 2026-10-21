@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
-import { activateNativeNotifications, isNativeAndroid, releaseNativeDevice } from "@/lib/push/native";
+import { activateNativeNotifications, deactivateNativeNotifications, isNativeAndroid, nativeNotificationsEnabled, releaseNativeDevice } from "@/lib/push/native";
 
 type BookingForm = {
   service: string;
@@ -863,6 +863,7 @@ export default function Home() {
     useState<PushReminderAppointment | null>(null);
   const [pushMessage, setPushMessage] = useState<FormMessage | null>(null);
   const [isActivatingPush, setIsActivatingPush] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const [currentTimeInfo, setCurrentTimeInfo] = useState(getCurrentTimeInfo);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
@@ -870,6 +871,35 @@ export default function Home() {
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
   const [customerUser, setCustomerUser] = useState<User | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    async function refreshPushState() {
+      try {
+        let enabled = false;
+        if (customerUser) {
+          if (isNativeAndroid()) {
+            enabled = await nativeNotificationsEnabled();
+          } else if ("serviceWorker" in navigator && "PushManager" in window) {
+            const registration = await navigator.serviceWorker.getRegistration("/");
+            enabled = Boolean(await registration?.pushManager.getSubscription());
+          }
+        }
+        if (!disposed) setPushEnabled(enabled);
+      } catch {
+        if (!disposed) setPushEnabled(false);
+      }
+    }
+    void refreshPushState();
+    window.addEventListener("flowbarber:push-state-changed", refreshPushState);
+    window.addEventListener("focus", refreshPushState);
+    document.addEventListener("visibilitychange", refreshPushState);
+    return () => {
+      disposed = true;
+      window.removeEventListener("flowbarber:push-state-changed", refreshPushState);
+      window.removeEventListener("focus", refreshPushState);
+      document.removeEventListener("visibilitychange", refreshPushState);
+    };
+  }, [customerUser]);
   const customerAppointmentsRequest = useRef(0);
   const activeCustomerId = useRef<string | null>(null);
   activeCustomerId.current = customerUser?.id ?? null;
@@ -901,6 +931,7 @@ export default function Home() {
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [accessMode, setAccessMode] = useState<AccessMode>("initial");
+  const [showAccessSelection, setShowAccessSelection] = useState(false);
   const [customerSection, setCustomerSection] =
     useState<CustomerSection>("booking");
   const [barberLoginForm, setBarberLoginForm] = useState<CustomerLoginForm>(
@@ -2192,6 +2223,13 @@ export default function Home() {
     router.push("/panel");
   }
 
+  function leaveCustomerArea() {
+    setShowAccessSelection(true);
+    setAccessMode("initial");
+    setCustomerMessage(null);
+    setBarberMessage(null);
+  }
+
   async function logoutCustomer() {
     setIsCustomerAuthLoading(true);
 
@@ -3342,11 +3380,36 @@ export default function Home() {
   }
 
   async function activatePushReminder() {
+    if (isActivatingPush) return;
+    if (pushEnabled) {
+      if (!window.confirm("¿Desactivar las notificaciones de tus citas en este dispositivo?\n\nNo recibirás notificaciones en este dispositivo. Solo recibirás los avisos por correo electrónico. Puedes volver a activarlas cuando quieras.")) return;
+      setIsActivatingPush(true);
+      setPushMessage(null);
+      try {
+        if (isNativeAndroid()) {
+          await deactivateNativeNotifications();
+        } else {
+          const registration = await navigator.serviceWorker.getRegistration("/");
+          const subscription = await registration?.pushManager.getSubscription();
+          if (subscription && !(await subscription.unsubscribe())) {
+            throw new Error("No se pudieron desactivar los avisos. Inténtalo de nuevo.");
+          }
+        }
+        setPushEnabled(false);
+        setPushMessage({ text: "Notificaciones desactivadas en este dispositivo. Solo recibirás los avisos por correo electrónico.", type: "success" });
+      } catch (error) {
+        setPushMessage({ text: error instanceof Error ? error.message : "No se pudieron desactivar los avisos.", type: "error" });
+      } finally {
+        setIsActivatingPush(false);
+      }
+      return;
+    }
     if (isNativeAndroid()) {
       setIsActivatingPush(true);
       setPushMessage(null);
       try {
         await activateNativeNotifications();
+        setPushEnabled(true);
         setPushMessage({ text: "Notificaciones Android activadas para tus citas.", type: "success" });
       } catch (error) {
         setPushMessage({ text: error instanceof Error ? error.message : "No se pudieron activar los avisos.", type: "error" });
@@ -3450,6 +3513,7 @@ export default function Home() {
         text: "Recordatorio activado correctamente.",
         type: "success"
       });
+      setPushEnabled(true);
     } catch (error) {
       console.error("Error activating push reminder:", error);
 
@@ -3508,7 +3572,7 @@ export default function Home() {
     );
   }
 
-  if (!isCustomerLoggedIn && accessMode === "initial") {
+  if (showAccessSelection || (!isCustomerLoggedIn && accessMode === "initial")) {
     return (
       <main className="min-h-screen bg-barber-black px-5 py-6 text-barber-cream">
         <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-md flex-col justify-center rounded-[1.5rem] border border-white/10 bg-[#151515] p-6 shadow-2xl shadow-black/50">
@@ -3533,6 +3597,7 @@ export default function Home() {
             <button
               className="rounded-2xl border border-barber-gold/45 bg-barber-gold/10 p-5 text-left transition hover:bg-barber-gold/15 active:scale-[0.98]"
               onClick={() => {
+                setShowAccessSelection(false);
                 setAccessMode("customer");
                 setCustomerMessage(null);
               }}
@@ -3547,6 +3612,11 @@ export default function Home() {
             <button
               className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-left transition hover:border-barber-gold/50 hover:bg-white/[0.07] active:scale-[0.98]"
               onClick={() => {
+                setShowAccessSelection(false);
+                if (customerUser) {
+                  router.push("/panel");
+                  return;
+                }
                 setAccessMode("barber");
                 setBarberMessage(null);
               }}
@@ -4003,7 +4073,7 @@ export default function Home() {
         <h2 className="text-lg font-bold text-white">Mis citas</h2>
         <button className="mt-3 rounded-xl border border-barber-gold/40 px-4 py-3 text-sm text-barber-gold"
           onClick={activatePushReminder} disabled={isActivatingPush} type="button">
-          {isActivatingPush ? "Activando..." : "Activar avisos de mis citas"}
+          {isActivatingPush ? "Guardando..." : pushEnabled ? "Desactivar avisos de mis citas" : "Activar avisos de mis citas"}
         </button>
         {pushMessage && <p role="status" className="mt-2 text-sm text-white/70">{pushMessage.text}</p>}
 
@@ -4124,7 +4194,16 @@ export default function Home() {
   function renderCustomerProfileSection() {
     return (
       <section className="mx-auto w-full max-w-md rounded-[2rem] border border-white/10 bg-barber-gray p-6 shadow-2xl shadow-black/40">
-        <h1 className="text-3xl font-bold text-white">Mi perfil</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold text-white">Mi perfil</h1>
+          <button
+            className="rounded-2xl border border-red-400/40 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/10"
+            onClick={leaveCustomerArea}
+            type="button"
+          >
+            Salir
+          </button>
+        </div>
         <p className="mt-2 text-sm leading-6 text-white/65">
           Gestiona tus datos de cliente.
         </p>
@@ -4143,23 +4222,6 @@ export default function Home() {
 
         <div className="mt-5 space-y-5">
           {renderCustomerAppointmentsSection()}
-
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
-              Sesión activa
-            </p>
-            <p className="mt-2 text-sm font-semibold text-white">
-              {customerUser?.email}
-            </p>
-            <button
-              className="mt-4 w-full rounded-2xl border border-red-400/40 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isCustomerAuthLoading}
-              onClick={logoutCustomer}
-              type="button"
-            >
-              {isCustomerAuthLoading ? "Cerrando..." : "Cerrar sesión"}
-            </button>
-          </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <h2 className="text-lg font-bold text-white">Datos de contacto</h2>
@@ -4371,8 +4433,7 @@ export default function Home() {
             </div>
             <button
               className="rounded-2xl border border-red-400/40 px-3 py-2 text-xs font-bold text-red-100 transition hover:bg-red-400/10"
-              disabled={isCustomerAuthLoading}
-              onClick={logoutCustomer}
+              onClick={leaveCustomerArea}
               type="button"
             >
               Salir
@@ -4912,23 +4973,6 @@ export default function Home() {
           </div>
         ) : (
           <div className="mt-5 space-y-5">
-            <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/45">
-                Sesión activa
-              </p>
-              <p className="mt-2 text-sm font-semibold text-white">
-                {customerUser.email}
-              </p>
-              <button
-                className="mt-4 w-full rounded-2xl border border-red-400/40 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-400/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isCustomerAuthLoading}
-                onClick={logoutCustomer}
-                type="button"
-              >
-                {isCustomerAuthLoading ? "Cerrando..." : "Cerrar sesión"}
-              </button>
-            </div>
-
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <h3 className="text-lg font-bold text-white">Datos de contacto</h3>
               {isLoadingCustomerProfile ? (
@@ -5316,32 +5360,6 @@ export default function Home() {
           </div>
         )}
 
-        {lastAppointment && formMessage?.type === "success" && (
-          <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4">
-            <p className="text-sm font-semibold leading-6 text-white">
-              ¿Quieres recibir un recordatorio en tu móvil el día antes de la cita?
-            </p>
-            <button
-              className="mt-3 w-full rounded-2xl border border-barber-gold/50 bg-barber-gold/10 px-4 py-3 text-sm font-bold text-barber-gold transition hover:bg-barber-gold hover:text-black active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isActivatingPush}
-              onClick={activatePushReminder}
-              type="button"
-            >
-              {isActivatingPush ? "Activando..." : "Activar recordatorio"}
-            </button>
-            {pushMessage && (
-              <p
-                className={
-                  pushMessage.type === "success"
-                    ? "mt-3 text-sm font-semibold text-barber-gold"
-                    : "mt-3 text-sm font-semibold text-red-100"
-                }
-              >
-                {pushMessage.text}
-              </p>
-            )}
-          </div>
-        )}
       </section>
 
     </main>

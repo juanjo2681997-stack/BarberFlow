@@ -1,5 +1,6 @@
 create extension if not exists pg_net with schema extensions;
 create extension if not exists pg_cron;
+create extension if not exists pgcrypto with schema extensions;
 
 create or replace function public.dispatch_native_notifications()
 returns void language plpgsql security definer
@@ -7,13 +8,20 @@ set search_path = public, extensions, pg_temp as $$
 declare
   endpoint text;
   dispatch_secret text;
+  issued_at text;
+  nonce text;
+  request_token text;
 begin
   select decrypted_secret into endpoint from vault.decrypted_secrets where name = 'native_push_dispatch_url' limit 1;
   select decrypted_secret into dispatch_secret from vault.decrypted_secrets where name = 'native_push_dispatch_secret' limit 1;
   if endpoint is null or dispatch_secret is null then return; end if;
+  issued_at := floor(extract(epoch from clock_timestamp()))::bigint::text;
+  nonce := gen_random_uuid()::text;
+  request_token := 'v1.' || issued_at || '.' || nonce || '.' || encode(
+    extensions.hmac('native-push-dispatch:' || issued_at || ':' || nonce, dispatch_secret, 'sha256'), 'hex');
   perform net.http_post(
     url := endpoint,
-    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || dispatch_secret),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || request_token),
     body := '{}'::jsonb,
     timeout_milliseconds := 55000
   );

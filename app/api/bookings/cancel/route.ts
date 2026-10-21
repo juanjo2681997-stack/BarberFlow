@@ -20,6 +20,8 @@ type CancelBookingBody = {
 type Appointment = {
   id: string;
   business_id: string;
+  employee_id: string | null;
+  barber_name: string | null;
   customer_user_id: string | null;
   customer_name: string;
   customer_phone: string | null;
@@ -57,6 +59,7 @@ type PushSubscriptionRow = {
 
 type SupabaseAdminClient = {
   from: (table: string) => any;
+  rpc: (name: string, params: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
 };
 
 function formatAppointmentTime(value: string) {
@@ -141,8 +144,8 @@ function getUniqueEmails(values: unknown[]) {
   );
 }
 
-function getBarberCancellationAppointmentId(businessId: string) {
-  return `${barberCancellationAppointmentPrefix}${businessId}`;
+function getBarberCancellationAppointmentId(businessId: string, userId: string) {
+  return `${barberCancellationAppointmentPrefix}${businessId}:${userId}`;
 }
 
 async function sendBarberCancellationPush(params: {
@@ -166,13 +169,20 @@ async function sendBarberCancellationPush(params: {
 
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 
+  const { data: recipient, error: recipientError } = await supabaseAdmin.rpc("appointment_barber_recipient", {
+    target_business_id: appointment.business_id,
+    target_employee_id: appointment.employee_id,
+    target_barber_name: appointment.barber_name
+  });
+  if (recipientError || typeof recipient !== "string") return false;
+
   const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
     .from("push_subscriptions")
     .select("endpoint, p256dh, auth")
     .eq("business_id", appointment.business_id)
     .eq(
       "appointment_id",
-      getBarberCancellationAppointmentId(appointment.business_id)
+      getBarberCancellationAppointmentId(appointment.business_id, recipient)
     )
     .eq("customer_phone", barberCancellationCustomerPhone);
 
@@ -211,7 +221,7 @@ async function sendBarberCancellationPush(params: {
         },
         JSON.stringify({
           title: "Reserva cancelada",
-          body: "Revisa tu correo, tienes una reserva cancelada.",
+          body: `Un cliente ha cancelado su cita del ${appointment.appointment_date} a las ${formatAppointmentTime(appointment.appointment_time)}. Servicio: ${appointment.service}.`,
           url: "/panel",
           businessName
         })
@@ -277,7 +287,7 @@ export async function POST(request: Request) {
     const { data: appointment, error: appointmentError } = await supabaseAdmin
       .from("appointments")
       .select(
-        "id, business_id, customer_user_id, customer_name, customer_phone, service, appointment_date, appointment_time, duration_minutes, status, appointment_status"
+        "id, business_id, employee_id, barber_name, customer_user_id, customer_name, customer_phone, service, appointment_date, appointment_time, duration_minutes, status, appointment_status"
       )
       .eq("id", appointmentId)
       .eq("customer_user_id", user.id)
@@ -338,7 +348,7 @@ export async function POST(request: Request) {
         .or("status.is.null,status.neq.cancelled")
         .or("appointment_status.is.null,appointment_status.neq.cancelled")
         .select(
-          "id, business_id, customer_name, customer_phone, service, appointment_date, appointment_time, duration_minutes"
+          "id, business_id, employee_id, barber_name, customer_name, customer_phone, service, appointment_date, appointment_time, duration_minutes"
         )
         .maybeSingle();
 

@@ -17,10 +17,32 @@ export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
+function preferenceKey(userId: string) {
+  return `flowbarber-push-enabled:${userId}`;
+}
+
+export async function nativeNotificationsEnabled() {
+  if (!isNativeAndroid() || !Capacitor.isPluginAvailable("PushNotifications")) return false;
+  const session = (await supabase.auth.getSession()).data.session;
+  if (!session || localStorage.getItem(preferenceKey(session.user.id)) === "false") return false;
+  const permission = await PushNotifications.checkPermissions();
+  return permission.receive === "granted" &&
+    localStorage.getItem("flowbarber-push-owner") === session.user.id &&
+    Boolean(localStorage.getItem("flowbarber-push-token"));
+}
+
+export async function deactivateNativeNotifications() {
+  const session = (await supabase.auth.getSession()).data.session;
+  if (!session) throw new Error("Inicia sesión para desactivar los avisos.");
+  localStorage.setItem(preferenceKey(session.user.id), "false");
+  await releaseNativeDevice();
+  window.dispatchEvent(new Event("flowbarber:push-state-changed"));
+}
+
 async function saveToken() {
   if (disabled) return;
   const session = (await supabase.auth.getSession()).data.session;
-  if (!session || !token) return;
+  if (disabled || !session || !token || localStorage.getItem(preferenceKey(session.user.id)) === "false") return;
   let installationId = localStorage.getItem("flowbarber-installation");
   if (!installationId) {
     installationId = crypto.randomUUID();
@@ -36,6 +58,8 @@ async function saveToken() {
   });
   if (!response.ok) throw new Error("No se pudo registrar este dispositivo.");
   ownerSession = session;
+  localStorage.setItem("flowbarber-push-owner", session.user.id);
+  window.dispatchEvent(new Event("flowbarber:push-state-changed"));
 }
 
 function queueSave() {
@@ -55,6 +79,7 @@ export async function releaseNativeDevice() {
   if (!session) {
     token = "";
     localStorage.removeItem("flowbarber-push-token");
+    localStorage.removeItem("flowbarber-push-owner");
     return;
   }
   const response = await fetch("/api/push/devices", {
@@ -69,6 +94,8 @@ export async function releaseNativeDevice() {
   ownerSession = null;
   token = "";
   localStorage.removeItem("flowbarber-push-token");
+  localStorage.removeItem("flowbarber-push-owner");
+  window.dispatchEvent(new Event("flowbarber:push-state-changed"));
 }
 
 async function ensureListeners() {
@@ -102,7 +129,15 @@ async function ensureListeners() {
 
 export async function activateNativeNotifications(requestPermission = true) {
   if (!isNativeAndroid()) return false;
-  disabled = false;
+  const session = (await supabase.auth.getSession()).data.session;
+  if (!session) {
+    if (!requestPermission) return false;
+    throw new Error("Inicia sesión para activar los avisos.");
+  }
+  if (!requestPermission && localStorage.getItem(preferenceKey(session.user.id)) === "false") {
+    await releaseNativeDevice();
+    return false;
+  }
   if (!Capacitor.isPluginAvailable("PushNotifications")) {
     throw new Error("Esta instalación necesita la próxima actualización Android para activar los avisos.");
   }
@@ -115,6 +150,9 @@ export async function activateNativeNotifications(requestPermission = true) {
     if (!requestPermission) return false;
     throw new Error("Activa las notificaciones de FlowBarber en los ajustes de Android.");
   }
+  if (!requestPermission && localStorage.getItem(preferenceKey(session.user.id)) === "false") return false;
+  if (requestPermission) localStorage.setItem(preferenceKey(session.user.id), "true");
+  disabled = false;
   await PushNotifications.createChannel({
     id: "appointments",
     name: "Citas",

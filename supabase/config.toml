@@ -1,0 +1,3 @@
+[functions.native-push-dispatch]
+verify_jwt = false
+entrypoint = "./functions/native-push-dispatch/index.ts"

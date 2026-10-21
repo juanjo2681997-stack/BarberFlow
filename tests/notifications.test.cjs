@@ -22,19 +22,21 @@ before(async () => {
       business_id uuid, user_id uuid, email text, role text, employee_id uuid
     );
     create table public.employees(
-      id uuid, business_id uuid, is_active boolean, login_enabled boolean
+      id uuid, business_id uuid, user_id uuid, email text, display_name text, role text,
+      is_active boolean, login_enabled boolean, receives_bookings boolean default true
     );
     create table public.appointments(
       id uuid primary key default gen_random_uuid(), customer_user_id uuid, business_id uuid,
       appointment_date date, appointment_time time, service text,
       status text default 'pending', appointment_status text default 'pending',
-      customer_name text, cancellation_reason text, reminder_status text default 'pending',
+      customer_name text, employee_id uuid, barber_name text, cancellation_reason text, reminder_status text default 'pending',
       reminder_sent_at timestamptz, reminder_error text
     );
     insert into auth.users(id) values ('${customer}'), ('${other}');
     insert into business_settings values ('${business}', 'Barbería de prueba');
   `);
   await database.exec(readFileSync(path.join(__dirname, "../supabase/migrations/202610190001_native_notifications.sql"), "utf8"));
+  await database.exec(readFileSync(path.join(__dirname, "../supabase/migrations/202610190002_assigned_barber_notifications.sql"), "utf8"));
 });
 after(async () => { if (database) await database.close(); });
 
@@ -188,22 +190,19 @@ test("anon y authenticated no leen tokens ni pueden reclamar la cola", async () 
 });
 
 test("el mensaje modificado indica fecha, hora y servicio nuevos", () => {
-  const filename = path.join(__dirname, "../lib/push/message.ts");
-  const compiled = ts.transpileModule(readFileSync(filename, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-  }).outputText;
-  const loaded = new Module(filename, module);
-  loaded._compile(compiled, filename);
-  const message = loaded.exports.appointmentMessage("modified", {
+  const loaded = loadTypescript(path.join(__dirname, "../lib/push/message.ts"));
+  const message = loaded.appointmentMessage("modified", {
     businessName: "FlowBarber", date: "2030-06-12", time: "14:00", service: "Barba"
   });
   for (const detail of ["modificada", "2030-06-12", "14:00", "Barba"]) assert.ok(message.body.includes(detail));
 });
 
-test("cancelación por el cliente avisa al manager y revocar acceso invalida su aviso", async () => {
+test("cancelación por el cliente avisa solo al profesional asignado y revocar acceso invalida su aviso", async () => {
   await database.exec("update appointment_notification_jobs set state = 'cancelled'");
-  await database.query("insert into business_users(business_id, user_id, role) values ($1, $2, 'manager')", [business, other]);
-  const booking = await createBooking();
+  const employeeId = require("node:crypto").randomUUID();
+  await database.query("insert into employees(id, business_id, user_id, display_name, role, is_active, login_enabled) values ($1, $2, $3, 'Profesional', 'barber', true, true)", [employeeId, business, other]);
+  await database.query("insert into business_users(business_id, user_id, employee_id, role) values ($1, $2, $3, 'barber')", [business, other, employeeId]);
+  const booking = await createBooking({ employee_id: employeeId });
   await database.query("update appointments set status = 'cancelled', appointment_status = 'cancelled', cancellation_reason = 'Cancelada por el cliente' where id = $1", [booking.id]);
   const staff = (await jobs(booking)).find(job => job.payload.audience === "barber");
   assert.equal(staff.recipient_id, other);
@@ -214,11 +213,72 @@ test("cancelación por el cliente avisa al manager y revocar acceso invalida su 
   assert.equal(await valid(), true);
   await database.query("delete from business_users where user_id = $1", [other]);
   assert.equal(await valid(), false);
+  await database.query("delete from employees where id = $1", [employeeId]);
+});
+
+test("barbero asignado: no avisa al dueño, a otros profesionales ni a otra barbería", async () => {
+  const { randomUUID } = require("node:crypto");
+  const shop = randomUUID();
+  const assigned = randomUUID();
+  const colleague = randomUUID();
+  const owner = randomUUID();
+  const assignedEmployee = randomUUID();
+  const colleagueEmployee = randomUUID();
+  for (const userId of [assigned, colleague, owner]) await database.query("insert into auth.users(id) values ($1)", [userId]);
+  for (const [employeeId, userId, name] of [[assignedEmployee, assigned, "Ana"], [colleagueEmployee, colleague, "Luis"]]) {
+    await database.query("insert into employees(id,business_id,user_id,display_name,role,is_active,login_enabled) values ($1,$2,$3,$4,'barber',true,true)", [employeeId, shop, userId, name]);
+    await database.query("insert into business_users(business_id,user_id,employee_id,role) values ($1,$2,$3,'barber')", [shop, userId, employeeId]);
+  }
+  await database.query("insert into business_users(business_id,user_id,role) values ($1,$2,'owner')", [shop, owner]);
+  const booking = await createBooking({ business_id: shop, employee_id: assignedEmployee });
+  await database.query("update appointments set status='cancelled', appointment_status='cancelled', cancellation_reason='Cancelada por el cliente' where id=$1", [booking.id]);
+  const staff = (await jobs(booking)).filter(job => job.payload.audience === "barber");
+  assert.deepEqual(staff.map(job => job.recipient_id), [assigned]);
+  const resolve = async (employeeId, name, shopId = shop) => (await database.query("select appointment_barber_recipient($1,$2,$3) as recipient", [shopId, employeeId, name])).rows[0].recipient;
+  assert.equal(await resolve(null, "Ana"), assigned);
+  assert.equal(await resolve(null, "Desconocido"), null);
+  assert.equal(await resolve(assignedEmployee, "Ana", business), null);
+  await database.query("update employees set login_enabled=false where id=$1", [assignedEmployee]);
+  assert.equal(await resolve(assignedEmployee, "Ana"), null);
+});
+
+test("citas antiguas: solo resuelve un único profesional y no envía avisos si el nombre es ambiguo", async () => {
+  const { randomUUID } = require("node:crypto");
+  const shop = randomUUID();
+  const employeeId = randomUUID();
+  const userId = randomUUID();
+  await database.query("insert into auth.users(id) values ($1)", [userId]);
+  await database.query("insert into employees(id,business_id,user_id,display_name,role,is_active,login_enabled) values ($1,$2,$3,'Ana','owner',true,true)", [employeeId, shop, userId]);
+  await database.query("insert into business_users(business_id,user_id,employee_id,role) values ($1,$2,$3,'owner')", [shop, userId, employeeId]);
+  const resolve = async () => (await database.query("select appointment_barber_recipient($1,null,'Nombre anterior') as recipient", [shop])).rows[0].recipient;
+  assert.equal(await resolve(), userId);
+  const booking = await createBooking({ business_id: shop, barber_name: "Nombre anterior" });
+  await database.query("update appointments set status='cancelled', appointment_status='cancelled', cancellation_reason='Cancelada por el cliente' where id=$1", [booking.id]);
+  const ownerNotifications = (await jobs(booking)).filter(job => job.payload.audience === "barber");
+  assert.deepEqual(ownerNotifications.map(job => job.recipient_id), [userId]);
+  const explicitOwner = await database.query("select appointment_barber_recipient($1,$2,'Ana') as recipient", [shop, employeeId]);
+  assert.equal(explicitOwner.rows[0].recipient, userId);
+  await database.query("insert into employees(id,business_id,display_name,role,is_active,login_enabled) values ($1,$2,'Ana','barber',true,true)", [randomUUID(), shop]);
+  assert.equal(await resolve(), null);
+  const ambiguous = await database.query("select appointment_barber_recipient($1,null,'Ana') as recipient", [shop]);
+  assert.equal(ambiguous.rows[0].recipient, null);
+});
+
+test("reasignar una cita invalida el aviso pendiente del barbero anterior", async () => {
+  const booking = await createBooking();
+  const previousRevision = booking.notification_revision;
+  await database.query("update appointments set employee_id=$1 where id=$2", [require("node:crypto").randomUUID(), booking.id]);
+  const updated = (await database.query("select notification_revision from appointments where id=$1", [booking.id])).rows[0];
+  assert.equal(Number(updated.notification_revision), Number(previousRevision) + 1);
+  assert.ok((await jobs(booking)).filter(job => job.revision === previousRevision).every(job => job.state === "cancelled"));
 });
 
 test("cron y webhook inmediato usan Vault y sólo despiertan al insertar avisos vencidos", async () => {
   await database.exec(`
     create schema vault; create schema net; create schema cron;
+    create schema if not exists extensions;
+    create function extensions.hmac(payload text, secret text, algorithm text)
+      returns bytea language sql as $$ select decode(repeat('ab', 32), 'hex'); $$;
     create table vault.decrypted_secrets(name text, decrypted_secret text);
     create table public.test_http_calls(url text, headers jsonb, body jsonb);
     create function net.http_post(url text, headers jsonb, body jsonb, timeout_milliseconds integer)
@@ -241,11 +301,107 @@ test("cron y webhook inmediato usan Vault y sólo despiertan al insertar avisos 
   const calls = (await database.query("select * from test_http_calls")).rows;
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://example.invalid/api/push/dispatch");
-  assert.equal(calls[0].headers.Authorization, "Bearer test-only-dispatch-secret");
+  assert.match(calls[0].headers.Authorization, /^Bearer v1\.\d+\.[0-9a-f-]{36}\.[0-9a-f]{64}$/);
+  assert.equal(JSON.stringify(calls[0]).includes("test-only-dispatch-secret"), false);
   await database.query("update appointments set service = 'Barba' where id = $1", [booking.id]);
   assert.equal((await database.query("select * from test_http_calls")).rows.length, 2);
   await database.exec("update appointment_notification_jobs set state = 'cancelled'");
   assert.equal((await database.query("select * from test_http_calls")).rows.length, 2);
+});
+
+function loadNativeNotifications(storage, requests, options = {}) {
+  const handlers = new Map();
+  const plugin = {
+    checkPermissions: async () => ({ receive: "granted" }),
+    createChannel: async () => {},
+    unregister: async () => { requests.push({ method: "unregister" }); },
+    removeAllDeliveredNotifications: async () => {},
+    addListener: async (event, handler) => {
+      if (!handlers.has(event)) handlers.set(event, new Set());
+      handlers.get(event).add(handler);
+      return { remove: async () => handlers.get(event).delete(handler) };
+    },
+    register: async () => {
+      requests.push({ method: "register" });
+      for (const handler of [...(handlers.get("registration") || [])]) {
+        await handler({ value: "test-only-device-token" });
+      }
+    }
+  };
+  const dependencies = {
+    "@capacitor/core": { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android", isPluginAvailable: () => true } },
+    "@capacitor/push-notifications": { PushNotifications: plugin },
+    "@/lib/supabaseClient": { supabase: { auth: { getSession: async () => ({ data: { session: {
+      access_token: "test-only-session", user: { id: options.userId || customer }
+    } } }) } } }
+  };
+  const compiled = ts.transpileModule(readFileSync(path.join(__dirname, "../lib/push/native.ts"), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+  }).outputText;
+  const exported = {};
+  require("node:vm").runInNewContext(compiled, {
+    exports: exported,
+    require: name => {
+      assert.ok(dependencies[name], `Unexpected dependency: ${name}`);
+      return dependencies[name];
+    },
+    localStorage: {
+      getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+      removeItem: key => storage.delete(key)
+    },
+    crypto: require("node:crypto").webcrypto,
+    Event,
+    window: { setTimeout, clearTimeout, dispatchEvent: () => {} },
+    fetch: async (url, init) => {
+      requests.push({ url, method: init.method });
+      return { ok: !(options.deleteFails && init.method === "DELETE") };
+    }
+  });
+  return exported;
+}
+
+test("Android: desactivar elimina el registro y no se reactiva al reabrir con permiso concedido", async () => {
+  const storage = new Map([["flowbarber-push-token", "test-only-device-token"], ["flowbarber-push-owner", customer]]);
+  const requests = [];
+  const native = loadNativeNotifications(storage, requests);
+  assert.equal(await native.nativeNotificationsEnabled(), true);
+  await native.deactivateNativeNotifications();
+  assert.equal(await native.nativeNotificationsEnabled(), false);
+  assert.ok(requests.some(request => request.method === "DELETE"));
+  assert.equal(storage.has("flowbarber-push-token"), false);
+  const reopened = loadNativeNotifications(storage, requests);
+  assert.equal(await reopened.activateNativeNotifications(false), false);
+  assert.equal(requests.some(request => request.method === "register"), false);
+});
+
+test("Android: el cliente puede reactivar voluntariamente los avisos", async () => {
+  const storage = new Map([[`flowbarber-push-enabled:${customer}`, "false"]]);
+  const requests = [];
+  const native = loadNativeNotifications(storage, requests);
+  assert.equal(await native.activateNativeNotifications(), true);
+  assert.equal(await native.nativeNotificationsEnabled(), true);
+  assert.ok(requests.some(request => request.method === "POST"));
+});
+
+test("Android: desactivar una cuenta no desactiva los avisos de otra cuenta", async () => {
+  const storage = new Map([[`flowbarber-push-enabled:${customer}`, "false"]]);
+  const requests = [];
+  const native = loadNativeNotifications(storage, requests, { userId: other });
+  assert.equal(await native.activateNativeNotifications(false), true);
+  assert.equal(await native.nativeNotificationsEnabled(), true);
+  assert.equal(storage.get(`flowbarber-push-enabled:${customer}`), "false");
+});
+
+test("Android: un fallo al desvincular informa del error y permite reintentar sin reactivar", async () => {
+  const storage = new Map([["flowbarber-push-token", "test-only-device-token"], ["flowbarber-push-owner", customer]]);
+  const requests = [];
+  const native = loadNativeNotifications(storage, requests, { deleteFails: true });
+  await assert.rejects(native.deactivateNativeNotifications(), /No se pudo desvincular/);
+  const reopened = loadNativeNotifications(storage, requests);
+  assert.equal(await reopened.activateNativeNotifications(false), false);
+  assert.equal(storage.has("flowbarber-push-token"), false);
+  assert.equal(requests.some(request => request.method === "register"), false);
 });
 
 function loadTypescript(filename) {
@@ -255,12 +411,93 @@ function loadTypescript(filename) {
   const loaded = new Module(filename, module);
   loaded.paths = Module._nodeModulePaths(path.dirname(filename));
   const originalRequire = loaded.require.bind(loaded);
-  loaded.require = (name) => name.startsWith("./")
-    ? loadTypescript(path.resolve(path.dirname(filename), name + ".ts"))
+  loaded.require = (name) => name.startsWith(".")
+    ? loadTypescript(path.resolve(path.dirname(filename), name.endsWith(".ts") ? name : name + ".ts"))
     : originalRequire(name);
   loaded._compile(compiled, filename);
   return loaded.exports;
 }
+
+test("cron firmado: acepta firmas vigentes y rechaza alteraciones, firmas caducadas y fechas futuras", () => {
+  const { createHmac, randomUUID } = require("node:crypto");
+  const { isDispatchAuthorized } = loadTypescript(path.join(__dirname, "../supabase/functions/_shared/auth.ts"));
+  const secret = "test-only-dispatch-secret";
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const nonce = randomUUID();
+  const signature = createHmac("sha256", secret).update(`native-push-dispatch:${issuedAt}:${nonce}`).digest("hex");
+  const header = `Bearer v1.${issuedAt}.${nonce}.${signature}`;
+  assert.equal(isDispatchAuthorized(header, secret, issuedAt * 1000), true);
+  assert.equal(isDispatchAuthorized(header, secret, (issuedAt + 61) * 1000), false);
+  assert.equal(isDispatchAuthorized(header, secret, (issuedAt - 6) * 1000), false);
+  assert.equal(isDispatchAuthorized(header, "different-test-secret", issuedAt * 1000), false);
+  assert.equal(isDispatchAuthorized(header.replace(nonce, randomUUID()), secret, issuedAt * 1000), false);
+  assert.equal(isDispatchAuthorized(header, undefined, issuedAt * 1000), false);
+});
+
+test("worker compartido: rechaza métodos y credenciales antes de consultar Supabase", async () => {
+  const originalSecret = process.env.NATIVE_PUSH_DISPATCH_SECRET;
+  const originalFetch = global.fetch;
+  let requests = 0;
+  global.fetch = async () => { requests += 1; throw new Error("No debe conectar"); };
+  process.env.NATIVE_PUSH_DISPATCH_SECRET = "test-only-dispatch-secret";
+  try {
+    const worker = loadTypescript(path.join(__dirname, "../supabase/functions/_shared/dispatch.ts"));
+    const get = await worker.dispatchNotifications(new Request("https://example.invalid/"));
+    assert.equal(get.status, 405);
+    assert.equal(get.headers.get("Allow"), "POST");
+    for (const authorization of ["", "Bearer incorrecto", "Bearer test-only-dispatch-secreu"]) {
+      const response = await worker.dispatchNotifications(new Request("https://example.invalid/", {
+        method: "POST", headers: { authorization }
+      }));
+      assert.equal(response.status, 401);
+    }
+    delete process.env.NATIVE_PUSH_DISPATCH_SECRET;
+    const response = await worker.dispatchNotifications(new Request("https://example.invalid/", {
+      method: "POST", headers: { authorization: "Bearer undefined" }
+    }));
+    assert.equal(response.status, 401);
+    assert.equal(requests, 0);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalSecret === undefined) delete process.env.NATIVE_PUSH_DISPATCH_SECRET;
+    else process.env.NATIVE_PUSH_DISPATCH_SECRET = originalSecret;
+  }
+});
+
+test("worker Edge: usa SUPABASE_URL y devuelve una cola vacía sin contactar con FCM", async () => {
+  const keys = ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "NATIVE_PUSH_DISPATCH_SECRET", "FCM_PROJECT_ID", "FCM_CLIENT_EMAIL", "FCM_PRIVATE_KEY"];
+  const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const originalFetch = global.fetch;
+  const requests = [];
+  Object.assign(process.env, {
+    SUPABASE_URL: "https://edge-test.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://unused-test.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "test-only-service-role-key",
+    NATIVE_PUSH_DISPATCH_SECRET: "test-only-dispatch-secret",
+    FCM_PROJECT_ID: "flowbarber-test", FCM_CLIENT_EMAIL: "test@example.invalid", FCM_PRIVATE_KEY: "not-used"
+  });
+  global.fetch = async (request, init) => {
+    requests.push({ url: typeof request === "string" ? request : request.url, init });
+    return Response.json([]);
+  };
+  try {
+    const worker = loadTypescript(path.join(__dirname, "../supabase/functions/_shared/dispatch.ts"));
+    const response = await worker.dispatchNotifications(new Request("https://example.invalid/", {
+      method: "POST", headers: { authorization: "Bearer test-only-dispatch-secret" }
+    }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, processed: 0 });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "https://edge-test.supabase.co/rest/v1/rpc/claim_appointment_notifications");
+    assert.equal(JSON.parse(requests[0].init.body).batch_size, 5);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of keys) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  }
+});
 
 test("FCM firma OAuth, envía los datos nuevos y descarta mensajes diferidos", async () => {
   const { generateKeyPairSync, verify } = require("node:crypto");

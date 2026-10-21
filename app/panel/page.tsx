@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { activateNativeNotifications, isNativeAndroid, releaseNativeDevice } from "@/lib/push/native";
+import { activateNativeNotifications, deactivateNativeNotifications, isNativeAndroid, nativeNotificationsEnabled, releaseNativeDevice } from "@/lib/push/native";
 
 type Appointment = {
   id: string;
@@ -872,6 +872,7 @@ export default function BarberPanel() {
     useState<BlockCancelledAppointment[]>([]);
   const [barberCancellationPushMessage, setBarberCancellationPushMessage] =
     useState("");
+  const [barberPushEnabled, setBarberPushEnabled] = useState(false);
   const [
     barberCancellationPushMessageType,
     setBarberCancellationPushMessageType
@@ -1000,6 +1001,32 @@ export default function BarberPanel() {
   >(null);
   const [currentPanelRole, setCurrentPanelRole] = useState<string | null>(null);
   const [currentPanelUserId, setCurrentPanelUserId] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        let enabled = false;
+        if (currentPanelUserId) {
+          if (isNativeAndroid()) enabled = await nativeNotificationsEnabled();
+          else if ("serviceWorker" in navigator && "PushManager" in window) {
+            const registration = await navigator.serviceWorker.getRegistration("/");
+            enabled = Boolean(await registration?.pushManager.getSubscription());
+          }
+        }
+        if (!disposed) setBarberPushEnabled(enabled);
+      } catch {
+        if (!disposed) setBarberPushEnabled(false);
+      }
+    };
+    void refresh();
+    window.addEventListener("flowbarber:push-state-changed", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener("flowbarber:push-state-changed", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [currentPanelUserId]);
   const [historyStatusFilter, setHistoryStatusFilter] =
     useState<HistoryStatusFilter>("all");
   const [historyDateFrom, setHistoryDateFrom] = useState("");
@@ -2400,12 +2427,35 @@ export default function BarberPanel() {
   }
 
   async function activateBarberCancellationNotifications() {
+    if (isActivatingBarberCancellationPush) return;
+    if (barberPushEnabled) {
+      if (!window.confirm("¿Desactivar los avisos de cancelación en este dispositivo? Dejarás de recibir notificaciones cuando un cliente cancele una cita asignada a ti.")) return;
+      setIsActivatingBarberCancellationPush(true);
+      try {
+        if (isNativeAndroid()) await deactivateNativeNotifications();
+        else {
+          const registration = await navigator.serviceWorker.getRegistration("/");
+          const subscription = await registration?.pushManager.getSubscription();
+          if (subscription && !(await subscription.unsubscribe())) throw new Error("No se pudieron desactivar los avisos.");
+        }
+        setBarberPushEnabled(false);
+        setBarberCancellationPushMessageType("success");
+        setBarberCancellationPushMessage("Avisos de cancelación desactivados en este dispositivo.");
+      } catch (error) {
+        setBarberCancellationPushMessageType("error");
+        setBarberCancellationPushMessage(error instanceof Error ? error.message : "No se pudieron desactivar los avisos.");
+      } finally {
+        setIsActivatingBarberCancellationPush(false);
+      }
+      return;
+    }
     if (isNativeAndroid()) {
       setIsActivatingBarberCancellationPush(true);
       try {
         await activateNativeNotifications();
+        setBarberPushEnabled(true);
         setBarberCancellationPushMessageType("success");
-        setBarberCancellationPushMessage("Notificaciones Android activadas.");
+        setBarberCancellationPushMessage("Recibirás avisos cuando un cliente cancele una cita asignada a ti.");
       } catch (error) {
         setBarberCancellationPushMessageType("error");
         setBarberCancellationPushMessage(error instanceof Error ? error.message : "No se pudieron activar los avisos.");
@@ -2506,6 +2556,7 @@ export default function BarberPanel() {
 
       setBarberCancellationPushMessageType("success");
       setBarberCancellationPushMessage("Notificaciones de cancelación activadas.");
+      setBarberPushEnabled(true);
     } catch (error) {
       console.error("Error activating barber cancellation notifications:", error);
       setBarberCancellationPushMessageType("error");
@@ -5286,6 +5337,28 @@ export default function BarberPanel() {
           </div>
         </header>
 
+        {["owner", "manager", "barber"].includes(currentPanelRole ?? "") && (
+          <section className="mb-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h2 className="text-sm font-bold text-white">Avisos de cancelación</h2>
+            <p className="mt-1 text-xs leading-5 text-white/60">
+              Recibirás un aviso solo cuando un cliente cancele una cita asignada a ti.
+            </p>
+            <button
+              className="mt-3 rounded-2xl border border-barber-gold/40 px-4 py-3 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 disabled:opacity-50"
+              disabled={isActivatingBarberCancellationPush}
+              onClick={activateBarberCancellationNotifications}
+              type="button"
+            >
+              {isActivatingBarberCancellationPush ? "Guardando..." : barberPushEnabled ? "Desactivar avisos de cancelación" : "Activar avisos de cancelación"}
+            </button>
+            {barberCancellationPushMessage && (
+              <p role="status" className={`mt-3 text-xs ${barberCancellationPushMessageType === "error" ? "text-red-100" : "text-green-100"}`}>
+                {barberCancellationPushMessage}
+              </p>
+            )}
+          </section>
+        )}
+
         {isOwnerPanelRole && (
           <>
             <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
@@ -7950,39 +8023,6 @@ export default function BarberPanel() {
             <h3 className="text-lg font-bold text-white">
               Cancelaciones pendientes de avisar
             </h3>
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-bold text-white">
-                    Avisos de cancelación
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-white/60">
-                    Recibirás un aviso cuando un cliente cancele una cita.
-                  </p>
-                </div>
-                <button
-                  className="rounded-2xl border border-barber-gold/40 px-4 py-3 text-xs font-semibold text-barber-gold transition hover:bg-barber-gold/10 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={isActivatingBarberCancellationPush}
-                  onClick={activateBarberCancellationNotifications}
-                  type="button"
-                >
-                  {isActivatingBarberCancellationPush
-                    ? "Activando..."
-                    : "Activar notificaciones"}
-                </button>
-              </div>
-              {barberCancellationPushMessage && (
-                <p
-                  className={`mt-3 rounded-2xl border p-3 text-xs font-semibold ${
-                    barberCancellationPushMessageType === "success"
-                      ? "border-green-400/30 bg-green-400/10 text-green-100"
-                      : "border-red-400/30 bg-red-400/10 text-red-100"
-                  }`}
-                >
-                  {barberCancellationPushMessage}
-                </p>
-              )}
-            </div>
             {visiblePendingCancellationNotifications.length === 0 ? (
               <p className="mt-3 text-sm text-white/60">
                 No hay clientes pendientes de avisar por WhatsApp.

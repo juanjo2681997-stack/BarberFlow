@@ -43,8 +43,8 @@ function getBearerToken(request: Request) {
     : "";
 }
 
-function getBarberCancellationAppointmentId(businessId: string) {
-  return `${barberCancellationAppointmentPrefix}${businessId}`;
+function getBarberCancellationAppointmentId(businessId: string, userId: string) {
+  return `${barberCancellationAppointmentPrefix}${businessId}:${userId}`;
 }
 
 async function userCanManageBusiness(params: {
@@ -94,17 +94,17 @@ async function userCanManageBusiness(params: {
     employee_id: string | null;
   };
 
-  if (businessUser.role !== "owner" && businessUser.role !== "manager") {
+  if (!["owner", "manager", "barber"].includes(businessUser.role ?? "")) {
     return false;
   }
 
   if (!businessUser.employee_id) {
-    return true;
+    return businessUser.role === "owner" || businessUser.role === "manager";
   }
 
   const { data: employee, error: employeeError } = await supabase
     .from("employees")
-    .select("is_active, login_enabled")
+    .select("is_active, login_enabled, receives_bookings, role")
     .eq("id", businessUser.employee_id)
     .eq("business_id", businessId)
     .maybeSingle();
@@ -119,7 +119,8 @@ async function userCanManageBusiness(params: {
     return false;
   }
 
-  return Boolean(employee?.is_active && employee?.login_enabled);
+  return Boolean(employee?.is_active && employee?.login_enabled && employee?.receives_bookings &&
+    ["owner", "manager", "barber"].includes(employee.role));
 }
 
 export async function POST(request: Request) {
@@ -172,7 +173,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "No autorizado." }, { status: 403 });
       }
 
-      const appointmentId = getBarberCancellationAppointmentId(businessId);
+      const appointmentId = getBarberCancellationAppointmentId(businessId, user.id);
       const { error: deleteError } = await supabase
         .from("push_subscriptions")
         .delete()
